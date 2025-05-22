@@ -8,40 +8,51 @@ import 'package:decathlon_demo_app/core/models/user_profile.dart';
 import 'package:decathlon_demo_app/core/models/api_models.dart' as api_models;
 import 'package:decathlon_demo_app/core/services/o3_llm_service.dart';
 import 'package:decathlon_demo_app/core/services/mock_api_service.dart';
-import 'package:decathlon_demo_app/core/services/env_service.dart';
+// import 'package:decathlon_demo_app/core/services/env_service.dart'; // AppConfig에 통합됨
 import 'package:decathlon_demo_app/features/chat/providers/chat_providers.dart';
 import 'package:decathlon_demo_app/core/config/app_config.dart';
 import 'package:decathlon_demo_app/core/providers/core_providers.dart';
 import 'package:decathlon_demo_app/background/background_task_queue.dart';
+import 'package:decathlon_demo_app/tool_layer/tool_registry.dart'; // ToolRegistry 임포트
+import 'package:decathlon_demo_app/tool_layer/mock_api_tool_runners.dart'; // getAllMockApiToolRunners 임포트
 import 'package:logging/logging.dart';
 
 class ChatOrchestrationService {
   final Ref _ref;
   final O3LlmService _o3LlmService;
-  final MockApiService _mockApiService;
+  // final MockApiService _mockApiService; // ToolRegistry를 통해 사용하므로 직접 참조 불필요
   final UserProfile? _currentUserProfile;
-  // final EnvService _envService; // AppConfig에 통합되었으므로 제거 가능
   final AppConfig _appConfig;
+  final ToolRegistry _toolRegistry; // ToolRegistry 멤버 변수 추가
   final _log = Logger('ChatOrchestrationService');
 
   int _currentConversationTurn = 0;
 
+  // 사용자 확인을 기다리는 Tool 호출 정보
+  ToolCall? _pendingToolCallForConfirmation;
+  String? _originalUserMessageBeforeConfirmation; // 확인 요청 전 사용자 메시지 (선택적)
+
   ChatOrchestrationService({
     required Ref ref,
     required O3LlmService o3LlmService,
-    required MockApiService mockApiService,
-    required EnvService envService, // AppConfig에 통합되었으므로 제거 가능
+    required MockApiService mockApiService, // MockApiService는 Runner 내부에서 ref.read로 접근
+    // required EnvService envService, // AppConfig에 통합
     required AppConfig appConfig,
     required UserProfile? currentUserProfile,
   })  : _ref = ref,
         _o3LlmService = o3LlmService,
-        _mockApiService = mockApiService,
-  // _envService = envService, // 제거
+  // _mockApiService = mockApiService,
         _appConfig = appConfig,
-        _currentUserProfile = currentUserProfile;
+        _currentUserProfile = currentUserProfile,
+        _toolRegistry = ToolRegistry() { // ToolRegistry 인스턴스 생성
+    // 모든 Mock API Tool Runner들을 ToolRegistry에 등록
+    _toolRegistry.registerRunners(getAllMockApiToolRunners());
+    _log.info("ToolRegistry initialized and all mock API tool runners registered.");
+  }
+
 
   List<ToolDefinition> _getToolDefinitions() {
-    // (이전과 동일한 Tool 정의 내용 - 변경 없음)
+    // 사용자가 제공한 11개 Tool 정의 (이전과 동일)
     return [
       const ToolDefinition(type: "function", function: FunctionDefinition(
         name: "getUserCoupons",
@@ -246,12 +257,12 @@ class ChatOrchestrationService {
 제공된 함수들의 설명을 잘 읽고, 사용자의 질문 의도에 가장 적합한 함수를 선택하여 호출해야 합니다.
 함수 호출 시에는 'parameters'에 정의된 모든 'required' 인자들을 반드시 포함해야 하며, 각 인자의 타입과 설명을 준수해야 합니다.
 만약 여러 단계의 함수 호출이 필요하다면, 순차적으로 호출하고 그 결과를 종합하여 최종 답변을 생성해주세요.
-결제(generateOrderQRCode) 등 민감한 작업 전에는 반드시 사용자에게 내용을 요약하여 채팅창에서 텍스트로 재확인 질문을 하고, 사용자의 긍정적인 답변('네', '맞아요' 등)을 받은 후에 해당 함수를 호출하세요.
+결제(generateOrderQRCode) 등 민감한 작업 전에는 사용자에게 내용을 요약하여 채팅창에서 텍스트로 재확인 질문을 하고, 사용자의 긍정적인 답변('네', '맞아요' 등)을 받은 후에 해당 함수를 호출하도록 유도해야 합니다. (주의: 당신이 직접 함수를 호출하는 것이 아니라, 사용자에게 확인을 요청하는 메시지를 생성해야 합니다.)
 
 $userInfoForPrompt
 $contextBlock
 사용자의 현재 질문에 대해 답변해주세요.
-    """;
+    """; // generateOrderQRCode 호출 유도 문구 수정
     return [ChatMessage(role: MessageRole.system, content: baseSystemPrompt.trim())];
   }
 
@@ -262,15 +273,26 @@ $contextBlock
     }
 
     _ref.read(chatLoadingProvider.notifier).state = true;
-    _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.user, content: userInput, timestamp: DateTime.now()));
+    final userMessage = ChatMessage(role: MessageRole.user, content: userInput, timestamp: DateTime.now());
+    _ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
     _currentConversationTurn++;
 
+    // --- 1. 사용자 확인 대기 중인 Tool 처리 ---
+    if (_pendingToolCallForConfirmation != null) {
+      await _handlePendingConfirmation(userInput, userMessage);
+      _ref.read(chatLoadingProvider.notifier).state = false;
+      return;
+    }
+
+    // --- 2. 일반 메시지 처리 흐름 ---
     final BackgroundTaskQueue queue = _ref.read(backgroundTaskQueueProvider);
     bool bgtQueueReady = false;
     try {
-      // BackgroundTaskQueue가 준비될 때까지 기다림 (타임아웃 20초)
-      await queue.initialize().timeout(const Duration(seconds: 20)); // 이전과 동일
-      bgtQueueReady = true; // 초기화 성공 시 플래그 설정
+      await queue.initialize().timeout(const Duration(seconds: 20));
+      bgtQueueReady = true;
+      // 슬롯 추출은 사용자 입력 직후 바로 요청 (LLM 응답 전에 시작)
+      // 다만, LLM 프롬프트에는 이 시점의 슬롯이 아니라 이전 턴의 슬롯이 들어갈 수 있음
+      // 또는, 슬롯 추출 완료 후 LLM 호출을 시작하는 것도 방법임 (현재는 병렬적)
       await queue.requestSlotExtraction(userInput);
       _log.info("Requested slot extraction in background for: $userInput");
     } on TimeoutException catch(e,s) {
@@ -281,14 +303,17 @@ $contextBlock
       _ref.read(backgroundTaskErrorProvider.notifier).state = "백그라운드 작업 오류. 슬롯 추출이 지연될 수 있습니다.";
     }
 
-    List<ChatMessage> currentFullHistory = List.from(_ref.read(chatMessagesProvider));
-    List<ChatMessage> messagesForLlm = [..._buildSystemMessages(), ...currentFullHistory.where((m) => m.role != MessageRole.system)];
+    List<ChatMessage> messagesForLlm = _ref.read(chatMessagesProvider); // 항상 최신 전체 대화 목록 사용
+    List<ChatMessage> systemAndContextMessages = _buildSystemMessages();
+    messagesForLlm = [...systemAndContextMessages, ...messagesForLlm.where((m) => m.role != MessageRole.system)];
+
+
     List<ToolDefinition> availableTools = _getToolDefinitions();
 
     for (int i = 0; i < _appConfig.maxToolIterations; i++) {
       _log.info("Sending request to LLM (Iteration ${i + 1}/${_appConfig.maxToolIterations}). Message count for LLM: ${messagesForLlm.length}");
-      // 이하 LLM 호출 및 응답 처리 로직은 이전과 동일 (변경 없음)
-      // ... (길이 관계상 생략) ...
+      _log.finest("Messages for LLM (Iter ${i+1}): ${messagesForLlm.map((m) => '${m.role.name}: ${m.content?.substring(0, (m.content?.length ?? 0) > 70 ? 70 : (m.content?.length ?? 0))}...').toList()}");
+
       LlmApiResponse llmResponse;
       try {
         llmResponse = await _o3LlmService.getChatCompletion(
@@ -296,143 +321,184 @@ $contextBlock
           tools: availableTools,
           toolChoice: "auto",
           usePrimaryModel: true,
-          temperature: _appConfig.toolDecisionTemperature, // YAML에서 수정된 값 사용
-          maxCompletionTokensOverride: _appConfig.toolDecisionMaxTokens,
+          temperature: (i == 0) ? _appConfig.toolDecisionTemperature : _appConfig.finalResponseTemperature, // 첫 호출과 이후 호출 온도 다르게 적용 가능
+          maxCompletionTokensOverride: (i == 0) ? _appConfig.toolDecisionMaxTokens : _appConfig.finalResponseMaxTokens,
         );
       } catch (e, stackTrace) {
         _log.severe("LLM API call failed in iteration ${i+1}: $e", e, stackTrace);
-        _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.assistant, content: "죄송합니다, 현재 서비스와 연결할 수 없습니다. (오류 ID: ${_currentConversationTurn}-${i+1})", timestamp: DateTime.now()));
+        _addAssistantErrorMessage("죄송합니다, 현재 서비스와 연결할 수 없습니다. (오류 ID: ${_currentConversationTurn}-${i+1})");
         _ref.read(chatLoadingProvider.notifier).state = false;
         return;
       }
 
       if (llmResponse.error != null) {
         _log.warning("LLM API returned an error in iteration ${i+1}: ${llmResponse.error?.message}");
-        _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.assistant, content: "죄송합니다, 요청 처리 중 오류가 발생했습니다. (LLM: ${llmResponse.error?.message})", timestamp: DateTime.now()));
+        _addAssistantErrorMessage("죄송합니다, 요청 처리 중 오류가 발생했습니다. (LLM: ${llmResponse.error?.message})");
         break;
       }
 
       if (llmResponse.choices == null || llmResponse.choices!.isEmpty) {
         _log.warning("LLM returned no choices in iteration ${i+1}.");
-        _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.assistant, content: "죄송합니다, 답변을 생성할 수 없습니다. 다른 질문을 해주시겠어요?", timestamp: DateTime.now()));
+        _addAssistantErrorMessage("죄송합니다, 답변을 생성할 수 없습니다. 다른 질문을 해주시겠어요?");
         break;
       }
 
       final LlmChoice firstChoice = llmResponse.choices!.first;
       final ChatMessage assistantMessageFromLlm = firstChoice.message.copyWith(timestamp: DateTime.now());
 
+      // 어시스턴트 메시지를 대화 목록에 추가 (tool_calls가 있더라도 content가 있을 수 있음)
       _ref.read(chatMessagesProvider.notifier).addMessage(assistantMessageFromLlm);
       messagesForLlm.add(assistantMessageFromLlm);
 
       if (firstChoice.finishReason == "tool_calls" && assistantMessageFromLlm.toolCalls != null && assistantMessageFromLlm.toolCalls!.isNotEmpty) {
         _log.info("LLM requested ${assistantMessageFromLlm.toolCalls!.length} tool call(s) in iteration ${i + 1}.");
-        List<ChatMessage> toolResponses = [];
+
+        List<ChatMessage> toolResultMessages = [];
+        bool confirmationRequested = false;
+
         for (ToolCall toolCall in assistantMessageFromLlm.toolCalls!) {
           _log.info("Processing tool call: ID='${toolCall.id}', Function='${toolCall.function.name}'");
           _log.fine("Function arguments: ${toolCall.function.arguments}");
 
-          Map<String, dynamic> argumentsMap = {};
+          // --- 사용자 재확인 로직 (generateOrderQRCode) ---
+          if (toolCall.function.name == "generateOrderQRCode") {
+            _log.info("Confirmation required for 'generateOrderQRCode'. Storing tool call and requesting confirmation message from LLM.");
+            _pendingToolCallForConfirmation = toolCall;
+            _originalUserMessageBeforeConfirmation = userInput; // 현재 사용자 입력 저장
+
+            // LLM에게 사용자 확인 질문 생성을 요청
+            // 이전 대화에 assistantMessageFromLlm (tool_calls 포함)은 이미 추가됨
+            // 이제 "사용자에게 ~~~ 내용으로 QR 생성할지 물어보세요" 라는 요청을 LLM에 보내야 함
+            final String orderDetailsSummary = _summarizeOrderForConfirmation(toolCall.function.arguments); // 주문 내용 요약 함수 (아래 추가)
+
+            List<ChatMessage> confirmationPromptMessages = List.from(messagesForLlm); // 현재까지의 대화 포함
+            confirmationPromptMessages.add(ChatMessage(
+                role: MessageRole.user, // 시스템 또는 사용자 역할로 LLM에게 지시
+                content: "방금 요청한 'generateOrderQRCode' 함수 실행 전에 사용자에게 다음 내용으로 QR 코드 생성을 진행할지 확인하는 질문을 해주세요: \"$orderDetailsSummary\". 사용자가 '네' 또는 '아니오'로 답변하도록 유도해주세요.",
+                timestamp: DateTime.now()
+            ));
+
+            LlmApiResponse confirmationQuestionResponse;
+            try {
+              confirmationQuestionResponse = await _o3LlmService.getChatCompletion(
+                conversationHistory: confirmationPromptMessages,
+                tools: [], // 이 단계에서는 tool 호출 안함
+                toolChoice: "none", // 텍스트 응답 강제
+                usePrimaryModel: true, // 확인 질문은 주 모델 사용
+                temperature: _appConfig.finalResponseTemperature, // 일반 응답 온도
+                maxCompletionTokensOverride: _appConfig.finalResponseMaxTokens,
+              );
+            } catch (e, s) {
+              _log.severe("LLM call for confirmation question failed.", e, s);
+              _addAssistantErrorMessage("주문 확인 중 오류가 발생했습니다. 다시 시도해주세요.");
+              _clearPendingConfirmation();
+              confirmationRequested = true; // 오류가 났지만 확인 요청 시도는 했음
+              break; // 현재 tool_calls 루프 중단
+            }
+
+            if (confirmationQuestionResponse.choices != null && confirmationQuestionResponse.choices!.isNotEmpty) {
+              final confirmationMsgContent = confirmationQuestionResponse.choices!.first.message.content;
+              if (confirmationMsgContent != null && confirmationMsgContent.isNotEmpty) {
+                _addAssistantMessage(confirmationMsgContent); // LLM이 생성한 확인 질문을 UI에 표시
+              } else {
+                _addAssistantErrorMessage("주문 내용을 확인해주세요. 진행하시겠습니까? (네/아니오)"); // Fallback
+              }
+            } else {
+              _addAssistantErrorMessage("주문 내용을 확인해주세요. 진행하시겠습니까? (네/아니오)"); // Fallback
+            }
+            confirmationRequested = true;
+            break; // 현재 tool_calls 루프를 중단하고 사용자 응답 대기
+          }
+          // --- 사용자 재확인 로직 끝 ---
+
+          // 일반 Tool 실행
+          Map<String, dynamic> argumentsMap;
           try {
             argumentsMap = jsonDecode(toolCall.function.arguments) as Map<String, dynamic>;
           } catch (e) {
             _log.severe("Failed to parse tool call arguments for ${toolCall.function.name}: $e");
-            toolResponses.add(ChatMessage(
+            toolResultMessages.add(ChatMessage(
               role: MessageRole.tool,
               toolCallId: toolCall.id,
               name: toolCall.function.name,
               content: jsonEncode({"error": "Argument parsing failed: $e", "raw_arguments": toolCall.function.arguments}),
               timestamp: DateTime.now(),
             ));
-            continue;
-          }
-
-          bool proceedWithToolCall = true;
-          if (toolCall.function.name == "generateOrderQRCode") {
-            _log.info("Confirmation required for generateOrderQRCode. This part needs UI interaction and is currently bypassed for direct execution in mock.");
-          }
-
-          if (!proceedWithToolCall) {
-            _log.info("Tool call for ${toolCall.function.name} cancelled by user (or failed reconfirmation).");
-            toolResponses.add(ChatMessage(
-              role: MessageRole.tool,
-              toolCallId: toolCall.id,
-              name: toolCall.function.name,
-              content: jsonEncode({"error": "Tool call cancelled by user."}),
-              timestamp: DateTime.now(),
-            ));
-            continue;
+            continue; // 다음 tool_call 처리
           }
 
           String toolResultJson;
           try {
-            final mockResponse = await _executeMockApi(toolCall.function.name, argumentsMap);
+            // ToolRegistry를 사용하여 Tool 실행
+            final mockResponse = await _toolRegistry.executeTool(toolCall.function.name, toolCall.function.arguments, _ref);
             toolResultJson = jsonEncode(mockResponse);
+
+            // QR 코드 데이터 처리 (generateOrderQRCode가 직접 실행된 경우 - 재확인 로직에서는 여기로 오지 않음)
+            if (toolCall.function.name == "generateOrderQRCode") {
+              final qrResponse = api_models.GenerateOrderQRCodeResponse.fromJson(mockResponse);
+              if (qrResponse.success && qrResponse.qrCodeData != null) {
+                _ref.read(qrCodeDataProvider.notifier).state = qrResponse.qrCodeData;
+              }
+            }
           } catch (e, stackTrace) {
-            _log.severe("Error executing mock API ${toolCall.function.name}: $e", e, stackTrace);
-            toolResultJson = jsonEncode({"error": "Mock API execution failed: $e", "function_name": toolCall.function.name});
+            _log.severe("Error executing tool via ToolRegistry ${toolCall.function.name}: $e", e, stackTrace);
+            toolResultJson = jsonEncode({"error": "ToolRegistry execution failed: $e", "function_name": toolCall.function.name});
           }
 
           _log.fine("Tool '${toolCall.function.name}' (ID: ${toolCall.id}) result: ${toolResultJson.substring(0, (toolResultJson.length > 100 ? 100 : toolResultJson.length))}...");
-          final toolResponseMessage = ChatMessage(
+          toolResultMessages.add(ChatMessage(
             role: MessageRole.tool,
             toolCallId: toolCall.id,
             name: toolCall.function.name,
             content: toolResultJson,
             timestamp: DateTime.now(),
-          );
-          toolResponses.add(toolResponseMessage);
+          ));
+        } // end for toolCall in toolCalls
 
-          if (toolCall.function.name == "generateOrderQRCode") {
-            try {
-              final qrResponseData = api_models.GenerateOrderQRCodeResponse.fromJson(jsonDecode(toolResultJson));
-              if (qrResponseData.success && qrResponseData.qrCodeData != null) {
-                _log.info("Setting QR code data for display: ${qrResponseData.qrCodeData!.substring(0, (qrResponseData.qrCodeData!.length > 30 ? 30 : qrResponseData.qrCodeData!.length))}...");
-                _ref.read(qrCodeDataProvider.notifier).state = qrResponseData.qrCodeData;
-              } else {
-                _log.warning("generateOrderQRCode tool call did not return successful QR data: ${qrResponseData.message}");
-              }
-            } catch(e) {
-              _log.warning("Failed to parse QR code data from tool response (${toolCall.function.name}): $e");
-            }
-          }
+        if (confirmationRequested) {
+          // 사용자 확인 질문이 나갔으므로, 현재 LLM 반복은 여기서 종료하고 사용자 입력을 기다림
+          _ref.read(chatLoadingProvider.notifier).state = false;
+          return;
         }
-        messagesForLlm.addAll(toolResponses);
-        _ref.read(chatMessagesProvider.notifier).addMessages(toolResponses);
+
+        if (toolResultMessages.isNotEmpty) {
+          _ref.read(chatMessagesProvider.notifier).addMessages(toolResultMessages);
+          messagesForLlm.addAll(toolResultMessages);
+          // Tool 실행 결과를 받았으므로, 다시 LLM에게 전달하여 최종 응답 생성 (루프 계속)
+        }
 
       } else if (assistantMessageFromLlm.content != null && assistantMessageFromLlm.content!.isNotEmpty) {
         _log.info("LLM provided final text response in iteration ${i + 1}.");
-        // YAML에서 수정된 temperature 값(1.0)이 여기서 사용된 _appConfig.toolDecisionTemperature에 반영됨
         break;
       } else {
         _log.warning("LLM response in iteration ${i + 1} had neither tool_calls nor content. Finishing turn with a generic message.");
-        _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.assistant, content: "음... 제가 어떻게 도와드려야 할지 잘 모르겠어요. 다시 한번 말씀해주시겠어요?", timestamp: DateTime.now()));
+        _addAssistantErrorMessage("음... 제가 어떻게 도와드려야 할지 잘 모르겠어요. 다시 한번 말씀해주시겠어요?");
         break;
       }
 
       if (i == _appConfig.maxToolIterations - 1) {
         _log.warning("Max tool iterations reached. LLM did not provide a final text response.");
         if (assistantMessageFromLlm.toolCalls != null && assistantMessageFromLlm.toolCalls!.isNotEmpty) {
-          _ref.read(chatMessagesProvider.notifier).addMessage(ChatMessage(role: MessageRole.assistant, content: "죄송합니다, 요청을 처리하는 데 예상보다 많은 단계가 필요하여 완료하지 못했습니다. 조금 더 구체적으로 질문해주시겠어요? (최대 반복 도달)", timestamp: DateTime.now()));
+          _addAssistantErrorMessage("죄송합니다, 요청을 처리하는 데 예상보다 많은 단계가 필요하여 완료하지 못했습니다. 조금 더 구체적으로 질문해주시겠어요? (최대 반복 도달)");
         }
         break;
       }
-    } // end for loop
+    } // end for loop (LLM iterations)
 
-    if (bgtQueueReady && // bgtQueue가 성공적으로 초기화된 경우에만 요약 요청
+    // 주기적 대화 요약 요청 (bgtQueue가 준비된 경우에만)
+    if (bgtQueueReady &&
         _appConfig.summarizationEnabled &&
         _currentConversationTurn > 0 &&
         _currentConversationTurn % _appConfig.summarizeEveryNTurns == 0) {
       _log.info("Requesting conversation summarization in background (Turn: $_currentConversationTurn).");
       try {
-        // queue.initialize()는 위에서 이미 호출되었거나 타임아웃 처리되었으므로 여기서는 바로 사용
         final historyForSummary = List<ChatMessage>.from(_ref.read(chatMessagesProvider))
             .where((m) => m.role != MessageRole.system)
             .map((m) => m.toJsonForApi())
             .toList();
         final previousSummaryForIsolate = _ref.read(currentChatSummaryProvider);
-
         await queue.requestSummarization(historyForSummary, previousSummaryForIsolate);
-      } catch (e,s) { // requestSummarization 내부의 _ensureInitialized에서 발생할 수 있는 예외 처리
+      } catch (e,s) {
         _log.severe("Failed to request conversation summarization (possibly due to BGTQ re-init issue). Summarization might be skipped.", e, s);
         _ref.read(backgroundTaskErrorProvider.notifier).state = "백그라운드 작업 오류. 요약 작업이 지연될 수 있습니다.";
       }
@@ -441,90 +507,190 @@ $contextBlock
     _ref.read(chatLoadingProvider.notifier).state = false;
   }
 
+  // 사용자 확인 처리 로직
+  Future<void> _handlePendingConfirmation(String userInput, ChatMessage userMessage) async {
+    _log.info("Handling user confirmation for pending tool: ${_pendingToolCallForConfirmation?.function.name}. User input: $userInput");
+    final pendingCall = _pendingToolCallForConfirmation!;
+    _clearPendingConfirmation(); // 일단 처리 시작하면 보류 상태 해제
+
+    // 간단한 키워드 기반으로 사용자 응답 판단 (실제로는 더 정교한 NLU/LLM 판단 필요 가능)
+    final positiveKeywords = ["네", "네.", "응", "그래", "맞아", "진행", "해주세요", "yes", "ok", "okay", "proceed"];
+    final negativeKeywords = ["아니오", "아니요", "아뇨", "취소", "중단", "no", "cancel", "stop"];
+
+    bool confirmed = positiveKeywords.any((kw) => userInput.toLowerCase().contains(kw));
+    bool cancelled = negativeKeywords.any((kw) => userInput.toLowerCase().contains(kw));
+
+    List<ChatMessage> messagesForLlm = _ref.read(chatMessagesProvider); // userMessage는 이미 추가된 상태
+    List<ChatMessage> systemAndContextMessages = _buildSystemMessages();
+    messagesForLlm = [...systemAndContextMessages, ...messagesForLlm.where((m) => m.role != MessageRole.system)];
+
+
+    if (confirmed) {
+      _log.info("User confirmed tool execution for: ${pendingCall.function.name}");
+      _addAssistantMessage("${pendingCall.function.name} 요청을 진행합니다...");
+
+      String toolResultJson;
+      try {
+        final mockResponse = await _toolRegistry.executeTool(pendingCall.function.name, pendingCall.function.arguments, _ref);
+        toolResultJson = jsonEncode(mockResponse);
+
+        if (pendingCall.function.name == "generateOrderQRCode") {
+          final qrResponse = api_models.GenerateOrderQRCodeResponse.fromJson(mockResponse);
+          if (qrResponse.success && qrResponse.qrCodeData != null) {
+            _ref.read(qrCodeDataProvider.notifier).state = qrResponse.qrCodeData;
+            // QR 코드 생성 성공 메시지는 LLM이 생성하도록 유도
+          } else {
+            toolResultJson = jsonEncode({...mockResponse, "error": qrResponse.message ?? "QR code generation failed but no specific message."});
+          }
+        }
+      } catch (e, stackTrace) {
+        _log.severe("Error executing confirmed tool via ToolRegistry ${pendingCall.function.name}: $e", e, stackTrace);
+        toolResultJson = jsonEncode({"error": "ToolRegistry execution failed after confirmation: $e", "function_name": pendingCall.function.name});
+      }
+
+      final toolResultMessage = ChatMessage(
+        role: MessageRole.tool,
+        toolCallId: pendingCall.id,
+        name: pendingCall.function.name,
+        content: toolResultJson,
+        timestamp: DateTime.now(),
+      );
+      _ref.read(chatMessagesProvider.notifier).addMessage(toolResultMessage);
+      messagesForLlm.add(toolResultMessage);
+
+      // Tool 실행 결과를 바탕으로 LLM에게 최종 응답 생성 요청
+      // (processUserMessage의 메인 루프와 유사하게 다시 LLM 호출)
+      // 여기서는 간략화하여 바로 다음 LLM 호출로 이어지지 않고, 다음 사용자 입력 시 새로운 흐름으로 처리되도록 할 수도 있음.
+      // 또는, 아래처럼 바로 이어서 LLM 호출하여 응답 생성:
+      await _continueLlmInteraction(messagesForLlm, "Tool ${pendingCall.function.name} 실행 결과를 바탕으로 사용자에게 안내해주세요.");
+
+    } else if (cancelled) {
+      _log.info("User cancelled tool execution for: ${pendingCall.function.name}");
+      _addAssistantMessage("${pendingCall.function.name} 요청이 취소되었습니다.");
+    } else {
+      _log.info("User confirmation unclear for ${pendingCall.function.name}. Input: $userInput. Requesting clarification.");
+      // 현재 사용자 메시지는 이미 추가된 상태. 여기에 어시스턴트가 재질문.
+      // 또는, LLM에게 "사용자 답변이 모호하니 다시 한번 명확히 물어봐주세요" 요청 가능
+      _addAssistantMessage("죄송합니다, 이해하지 못했습니다. '${_originalUserMessageBeforeConfirmation ?? '이전 요청'}'에 대한 진행 여부를 '네' 또는 '아니오'로 다시 한번 말씀해주시겠어요?");
+      // 다시 확인 상태로 돌려놓을 수 있음 (하지만 복잡도 증가)
+      // _pendingToolCallForConfirmation = pendingCall;
+    }
+  }
+
+  // LLM 상호작용을 계속하는 내부 함수
+  Future<void> _continueLlmInteraction(List<ChatMessage> messages, String? overrideUserContent) async {
+    // 이 함수는 processUserMessage의 LLM 호출 루프와 유사하게 동작
+    // overrideUserContent는 LLM에게 특정 지시를 내리고 싶을 때 사용
+    List<ChatMessage> currentMessages = List.from(messages);
+    if(overrideUserContent != null){
+      currentMessages.add(ChatMessage(role: MessageRole.user, content: overrideUserContent, timestamp: DateTime.now()));
+    }
+
+    _ref.read(chatLoadingProvider.notifier).state = true; // 로딩 시작 명시
+
+    // messagesForLlm 구성 (시스템 메시지 + 현재 대화)
+    List<ChatMessage> systemAndContextMessages = _buildSystemMessages(); // 최신 컨텍스트로 다시 빌드
+    List<ChatMessage> messagesForLlm = [...systemAndContextMessages, ...currentMessages.where((m) => m.role != MessageRole.system)];
+
+
+    LlmApiResponse llmResponse;
+    try {
+      llmResponse = await _o3LlmService.getChatCompletion(
+        conversationHistory: messagesForLlm,
+        tools: _getToolDefinitions(), // Tool은 계속 제공
+        toolChoice: "none", // 일반적으로 Tool 실행 후에는 텍스트 응답 기대
+        usePrimaryModel: true,
+        temperature: _appConfig.finalResponseTemperature,
+        maxCompletionTokensOverride: _appConfig.finalResponseMaxTokens,
+      );
+    } catch (e, stackTrace) {
+      _log.severe("LLM API call failed during _continueLlmInteraction: $e", e, stackTrace);
+      _addAssistantErrorMessage("죄송합니다, 응답을 생성하는 중 오류가 발생했습니다.");
+      _ref.read(chatLoadingProvider.notifier).state = false;
+      return;
+    }
+
+    if (llmResponse.error != null) {
+      _log.warning("LLM API returned an error during _continueLlmInteraction: ${llmResponse.error?.message}");
+      _addAssistantErrorMessage("응답 생성 중 오류: ${llmResponse.error?.message}");
+    } else if (llmResponse.choices != null && llmResponse.choices!.isNotEmpty) {
+      final choice = llmResponse.choices!.first;
+      final assistantResponse = choice.message.copyWith(timestamp: DateTime.now());
+      // 여기서 tool_calls가 또 나오면 재귀적 호출이나 반복 제한 필요 (현재는 단순 텍스트 응답 기대)
+      if (assistantResponse.content != null && assistantResponse.content!.isNotEmpty) {
+        _ref.read(chatMessagesProvider.notifier).addMessage(assistantResponse);
+      } else if (assistantResponse.toolCalls != null && assistantResponse.toolCalls!.isNotEmpty) {
+        _log.warning("_continueLlmInteraction: LLM requested further tool calls. This scenario needs more handling.");
+        // 일단 첫번째 tool_call 요청 메시지만 표시 (간단 처리)
+        _ref.read(chatMessagesProvider.notifier).addMessage(assistantResponse);
+        // TODO: 이 경우 다시 processUserMessage의 메인 루프와 유사한 처리가 필요할 수 있음
+        _addAssistantErrorMessage("추가 작업이 요청되었으나, 현재 이 흐름에서는 처리되지 않습니다. 다시 질문해주세요.");
+      }
+      else {
+        _addAssistantErrorMessage("응답 내용을 받지 못했습니다.");
+      }
+    } else {
+      _addAssistantErrorMessage("죄송합니다, 명확한 답변을 생성하지 못했습니다.");
+    }
+    _ref.read(chatLoadingProvider.notifier).state = false;
+  }
+
+
+  String _summarizeOrderForConfirmation(String argsJson) {
+    try {
+      final args = jsonDecode(argsJson) as Map<String, dynamic>;
+      final productName = args['productName'] as String? ?? '알 수 없는 제품';
+      final quantity = (args['quantity'] as num?)?.toInt() ?? 1;
+      final size = args['size'] as String? ?? '사이즈 미지정';
+      final color = args['color'] as String? ?? '색상 미지정';
+      final storeName = args['storeName'] as String? ?? '알 수 없는 매장';
+      final couponId = args['couponId'] as String?;
+
+      String summary = "$productName ($size/$color) ${quantity}개를 $storeName 매장에서 주문합니다.";
+      if (couponId != null && couponId.isNotEmpty) {
+        summary += " $couponId 쿠폰을 사용합니다.";
+      }
+      return summary;
+    } catch (e) {
+      _log.warning("Failed to summarize order for confirmation: $e. Raw args: $argsJson");
+      return "요청하신 주문"; // Fallback
+    }
+  }
+
+  void _clearPendingConfirmation() {
+    _pendingToolCallForConfirmation = null;
+    _originalUserMessageBeforeConfirmation = null;
+  }
+
+  void _addAssistantMessage(String content) {
+    _ref.read(chatMessagesProvider.notifier).addMessage(
+        ChatMessage(role: MessageRole.assistant, content: content, timestamp: DateTime.now())
+    );
+  }
+  void _addAssistantErrorMessage(String content) {
+    _log.warning("Adding assistant error message: $content");
+    _ref.read(chatMessagesProvider.notifier).addMessage(
+        ChatMessage(role: MessageRole.assistant, content: content, timestamp: DateTime.now())
+    );
+  }
+
+
   Future<dynamic> _executeMockApi(String functionName, Map<String, dynamic> arguments) async {
-    // (이전과 동일 - 변경 없음)
+    // 이 메서드는 이제 ToolRegistry를 통해 실행되므로 ChatOrchestrationService에서는 직접 사용하지 않음.
+    // 다만, ToolRunner 구현체 내부에서 MockApiService를 호출하는 형태로 이미 사용되고 있음.
+    // 혼동을 피하기 위해 이 메서드는 주석 처리하거나 삭제 가능.
+    // 여기서는 삭제하지 않고 남겨두지만, 직접 호출되지 않음을 인지.
+    _log.info("DEPRECATED: _executeMockApi called directly. Should use ToolRegistry.");
     if (_currentUserProfile == null) {
       _log.severe("Current user is null. Cannot execute mock API call for $functionName.");
       return {"error": "User not logged in", "found": false, "success": false};
     }
-    String userId = _currentUserProfile.id;
-    _log.info("Executing Mock API: '$functionName' with args: $arguments for user: $userId");
-
-    try {
-      switch (functionName) {
-        case "getUserCoupons":
-          return (await _mockApiService.getUserCoupons(userId: arguments['userId']?.toString() ?? userId)).toJson();
-        case "getProductInfo":
-          return (await _mockApiService.getProductInfo(
-            productName: arguments['productName'] as String,
-            brandName: arguments['brandName'] as String?,
-          )).toJson();
-        case "getStoreStock":
-          return (await _mockApiService.getStoreStock(
-            productName: arguments['productName'] as String,
-            storeName: arguments['storeName'] as String,
-            size: arguments['size'] as String?,
-            color: arguments['color'] as String?,
-          )).toJson();
-        case "getProductLocationInStore":
-          if (arguments['productName'] == null && arguments['category'] == null) {
-            return {"found": false, "message": "productName 또는 category 중 하나는 필수입니다."};
-          }
-          return (await _mockApiService.getProductLocationInStore(
-            productName: arguments['productName'] as String?,
-            category: arguments['category'] as String?,
-            storeName: arguments['storeName'] as String,
-          )).toJson();
-        case "getStoreInfo":
-          return (await _mockApiService.getStoreInfo(storeName: arguments['storeName'] as String)).toJson();
-        case "getUserPurchaseHistory":
-          return (await _mockApiService.getUserPurchaseHistory(userId: arguments['userId']?.toString() ?? userId)).toJson();
-        case "getProductReviews":
-          return (await _mockApiService.getProductReviews(productName: arguments['productName'] as String)).toJson();
-        case "generateOrderQRCode":
-          return (await _mockApiService.generateOrderQRCode(
-            userId: arguments['userId']?.toString() ?? userId,
-            productName: arguments['productName'] as String,
-            quantity: (arguments['quantity'] as num?)?.toInt() ?? 1,
-            size: arguments['size'] as String? ?? "N/A",
-            color: arguments['color'] as String? ?? "N/A",
-            storeName: arguments['storeName'] as String,
-            couponId: arguments['couponId'] as String?,
-          )).toJson();
-        case "getConversationHistory":
-          return (await _mockApiService.getConversationHistory(
-            userId: arguments['userId']?.toString() ?? userId,
-            currentTurnCount: (arguments['currentTurnCount'] as num?)?.toInt() ?? _currentConversationTurn,
-            summaryInterval: (arguments['summaryInterval'] as num?)?.toInt() ?? _appConfig.summarizeEveryNTurns,
-            recentKTurns: (arguments['recentKTurns'] as num?)?.toInt() ?? _appConfig.recentKTurns,
-          )).toJson();
-        case "findNearbyStores":
-          return (await _mockApiService.findNearbyStores(
-            currentLocation: arguments['currentLocation'] as String,
-            maxResults: (arguments['maxResults'] as num?)?.toInt(),
-          )).toJson();
-        case "recommendProductsByFeatures":
-          List<String> features = (arguments['features'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-          if (features.isEmpty) {
-            return {"found": false, "message": "features 목록은 필수입니다."};
-          }
-          return (await _mockApiService.recommendProductsByFeatures(
-            features: features,
-            category: arguments['category'] as String?,
-            maxResults: (arguments['maxResults'] as num?)?.toInt(),
-          )).toJson();
-        default:
-          _log.severe("Unknown function called by LLM: $functionName");
-          return {"error": "Unknown function: $functionName", "found": false, "success": false};
-      }
-    } catch (e, s) {
-      _log.severe("Error during mock API execution for $functionName: $e", e, s);
-      return {"error": "Internal error processing function $functionName: $e", "found": false, "success": false};
-    }
+    // ... (기존 _executeMockApi 로직) ...
+    // 실제로는 ToolRegistry에 위임해야 함.
+    return await _toolRegistry.executeTool(functionName, jsonEncode(arguments), _ref);
   }
 
   void initializeChat() {
-    // (이전과 동일 - 변경 없음)
     _ref.read(chatMessagesProvider.notifier).clearMessages();
     _ref.read(lastExtractedSlotsProvider.notifier).state = null;
     _ref.read(currentChatSummaryProvider.notifier).state = null;
@@ -532,19 +698,16 @@ $contextBlock
     _ref.read(backgroundTaskStatusProvider.notifier).state = BackgroundTaskState.idle;
     _ref.read(backgroundTaskErrorProvider.notifier).state = null;
     _currentConversationTurn = 0;
+    _clearPendingConfirmation(); // 보류 중인 확인 상태 초기화
 
     final initialTimestamp = DateTime.now();
 
     if (_currentUserProfile != null) {
       _log.info("Chat initialized for user: ${_currentUserProfile.name} (ID: ${_currentUserProfile.id})");
-      _ref.read(chatMessagesProvider.notifier).addMessage(
-          ChatMessage(role: MessageRole.assistant, content: "안녕하세요, ${_currentUserProfile.name}님! 데카트론 AI 챗봇입니다. 무엇을 도와드릴까요?", timestamp: initialTimestamp)
-      );
+      _addAssistantMessage("안녕하세요, ${_currentUserProfile.name}님! 데카트론 AI 챗봇입니다. 무엇을 도와드릴까요?");
     } else {
       _log.warning("Chat initialized but current user is null. Displaying generic welcome.");
-      _ref.read(chatMessagesProvider.notifier).addMessage(
-          ChatMessage(role: MessageRole.assistant, content: "안녕하세요! 데카트론 AI 챗봇입니다. 무엇을 도와드릴까요?", timestamp: initialTimestamp)
-      );
+      _addAssistantMessage("안녕하세요! 데카트론 AI 챗봇입니다. 무엇을 도와드릴까요?");
     }
   }
 }
