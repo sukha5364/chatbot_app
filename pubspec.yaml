@@ -45,13 +45,4 @@ flutter:
 
   assets:
     - .env
-    # - assets/images/decathlon_logo.png # 로고 이미지가 있다면 추가
-
-  # fonts: # NotoSansKR 폰트를 사용하려면 아래 주석 해제 및 폰트 파일 추가
-  #   - family: NotoSansKR
-  #     fonts:
-  #       - asset: assets/fonts/NotoSansKR-Regular.otf
-  #       - asset: assets/fonts/NotoSansKR-Medium.otf
-  #         weight: 500
-  #       - asset: assets/fonts/NotoSansKR-Bold.otf
-  #         weight: 700
+    - assets/config/

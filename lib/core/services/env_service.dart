@@ -1,37 +1,57 @@
-// 파일 경로: lib/core/services/env_service.dart
+// lib/core/services/env_service.dart
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-// import 'package:flutter/foundation.dart'; // 사용되지 않아 삭제
+import 'package:decathlon_demo_app/core/constants/app_constants.dart';
+import 'package:logging/logging.dart'; // 로거 사용을 위해 추가
 
 class EnvService {
-  // Private constructor
   EnvService._();
-
   static final EnvService _instance = EnvService._();
-
-  // Publicly accessible instance
   static EnvService get instance => _instance;
+
+  final String _envFileName = ".env";
+  final _log = Logger('EnvService'); // 로거 인스턴스 생성
 
   Future<void> load() async {
     try {
-      await dotenv.load(fileName: ".env");
-      // _log.info('.env file loaded successfully'); // Logger 사용 시
-    } catch (e) {
-      // _log.warning('Could not load .env file. Using default or environment variables.', e);
-      // .env 파일이 없어도 환경 변수에서 값을 읽어올 수 있으므로, 여기서는 오류를 발생시키지 않음.
-      // 필요하다면 print('Error loading .env file: $e'); 등으로 로깅 가능
+      await dotenv.load(fileName: _envFileName, mergeWith: {});
+      _log.info('$_envFileName file loaded successfully by EnvService.');
+      // 로드된 값 직접 확인 (디버깅용)
+      _log.info('Loaded O3_LLM_API_KEY: ${dotenv.env['O3_LLM_API_KEY'] != null && dotenv.env['O3_LLM_API_KEY']!.isNotEmpty ? "Exists" : "MISSING or EMPTY"}');
+      _log.info('Loaded O3_LLM_API_ENDPOINT: ${dotenv.env['O3_LLM_API_ENDPOINT'] ?? "MISSING or EMPTY"}');
+
+    } catch (e, s) {
+      _log.severe('Could not load $_envFileName file: $e', e, s);
     }
   }
 
-  String get o3LlmApiKey => dotenv.env['O3_LLM_API_KEY'] ?? '';
-  String get o3LlmApiEndpoint => dotenv.env['O3_LLM_API_ENDPOINT'] ?? '';
+  String _getEnvVariable(String key, {String defaultValue = ''}) {
+    // dotenv.env에서 직접 읽어오기 전에 dotenv.isInitialized 확인 (선택적)
+    if (!dotenv.isInitialized) {
+      _log.warning('.env has not been loaded yet. Attempting to load now for key: $key');
+      // load()를 여기서 다시 호출하는 것은 재귀적 문제를 일으킬 수 있으므로 주의.
+      // main.dart에서 load()가 완료되도록 보장하는 것이 중요.
+    }
+    return dotenv.env[key]?.replaceAll('"', '') ?? defaultValue;
+  }
 
-  // 여러 모델을 관리할 경우
-  String get primaryLlmModelName => dotenv.env['PRIMARY_LLM_MODEL_NAME'] ?? 'gpt-4-turbo-preview'; // 예시 기본값
-  String get secondaryLlmModelName => dotenv.env['SECONDARY_LLM_MODEL_NAME'] ?? 'gpt-3.5-turbo'; // 예시 기본값
+  String get o3LlmApiKey => _getEnvVariable('O3_LLM_API_KEY');
 
-  // API 키 존재 여부 확인 (선택적)
+  String get o3LlmApiEndpoint {
+    String rawUrl = _getEnvVariable('O3_LLM_API_ENDPOINT');
+
+    if (rawUrl.isEmpty) {
+      _log.warning('O3_LLM_API_ENDPOINT not found in .env, using default from AppConstants.');
+      rawUrl = AppConstants.defaultOpenAIApiBaseUrl;
+    }
+
+    String sanitizedUrl = rawUrl.replaceFirst(RegExp(r'/chat/completions/?$'), '');
+    sanitizedUrl = sanitizedUrl.endsWith('/') ? sanitizedUrl.substring(0, sanitizedUrl.length - 1) : sanitizedUrl;
+
+    return sanitizedUrl;
+  }
+
+  String get primaryLlmModelName => _getEnvVariable('PRIMARY_LLM_MODEL_NAME', defaultValue: AppConstants.defaultO3PrimaryModel);
+  String get secondaryLlmModelName => _getEnvVariable('SECONDARY_LLM_MODEL_NAME', defaultValue: AppConstants.defaultO3SecondaryModel);
+
   bool get hasLlmApiKey => o3LlmApiKey.isNotEmpty;
-
-// 필요하다면 다른 환경 변수들도 여기에 추가
-// String get anotherApiEndpoint => dotenv.env['ANOTHER_API_ENDPOINT'] ?? '';
 }

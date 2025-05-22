@@ -1,0 +1,47 @@
+# assets/config/app_config.yaml
+
+# --- LLM 서비스 기본 설정 ---
+llm_service:
+  primary_llm_model_name: "o3"
+  secondary_llm_model_name: "o3-mini"
+
+# --- 작업별 모델 및 파라미터 설정 ---
+tasks:
+  # 슬롯 추출 설정
+  slot_extraction:
+    model: "o3-mini" # 슬롯 추출에 사용할 모델 (o3-mini 고정)
+    temperature: 0.5 # 슬롯 추출 시 온도 (낮을수록 결정적)
+    max_completion_tokens: 500
+    prompt_template_asset_path: "assets/prompts/slot_extraction_prompt.txt"
+
+  # 대화 요약 설정
+  summarization:
+    enabled: true
+    model: "o3-mini" # 요약에 사용할 모델 (o3-mini 고정)
+    temperature: 0.7
+    max_completion_tokens: 1000
+    target_summary_tokens: 300
+    summarize_every_n_turns: 3
+    include_slots_in_summary_prompt: true
+    include_tool_results_in_summary: "brief"
+    prompt_template_asset_path: "assets/prompts/summarization_prompt.txt"
+
+  # 채팅 오케스트레이션 관련 파라미터
+  chat_orchestration:
+    # LLM의 Tool 사용 결정 및 첫 응답 시 (o3 모델 사용 가정)
+    tool_decision_temperature: 1.0 # <<< 수정: o3 모델이 0.7을 지원하지 않으므로 1.0으로 변경 (또는 모델 기본값 사용 위해 주석처리)
+    tool_decision_max_completion_tokens: 2000
+    # Tool 실행 후 최종 응답 생성 시 (o3 모델 사용 가정)
+    final_response_temperature: 1.0 # <<< 수정: o3 모델이 0.7을 지원하지 않으므로 1.0으로 변경 (또는 모델 기본값 사용 위해 주석처리)
+    final_response_max_completion_tokens: 2000
+    max_tool_iterations: 5
+
+# --- 컨텍스트 관리 ---
+context_management:
+  recent_k_turns: 3
+
+# --- 로깅 설정 (Flutter 앱에서는 main.dart에서 주로 관리) ---
+# logging:
+#   log_level: "INFO"
+
+# 참고: LLM에게 전달될 Tool 정의는 ChatOrchestrationService._getToolDefinitions()에서 직접 코드로 관리합니다.
