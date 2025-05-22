@@ -6,34 +6,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:decathlon_demo_app/core/config/app_config.dart';
 import 'package:decathlon_demo_app/core/providers/core_providers.dart';
 import 'package:decathlon_demo_app/background/isolate_setup_data.dart';
-// import 'package:decathlon_demo_app/features/chat/providers/chat_providers.dart'; // <--- 삭제됨 (순환 의존성 방지)
 import 'package:logging/logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:decathlon_demo_app/core/models/llm_models.dart';
 import 'package:decathlon_demo_app/core/services/env_service.dart';
 import 'dart:developer' as developer;
 
-// chat_providers.dart에서 Provider를 가져오기 위해 추가 (원래 chat_providers.dart에 있어야 할 내용이나, 순환참조로 인해 임시로 여기에 정의하거나, 별도 파일로 분리 필요)
-// 이 Provider들은 실제로는 chat_providers.dart에 있어야 하며,
-// BackgroundTaskQueue는 Ref를 통해 이들을 사용합니다.
-// 순환 참조를 완전히 해결하려면 backgroundTaskQueueProvider 자체를 별도 파일로 분리하는 것이 좋습니다.
-// 여기서는 chat_providers.dart의 Provider들을 직접 참조하지 않도록 수정합니다.
-// _handleIsolateResult 내부에서 _ref.read(provider_name) 형태로 사용하므로,
-// 해당 provider_name들이 다른 곳(예: core_providers.dart 또는 chat_providers.dart)에 정의되어 있고,
-// BackgroundTaskQueue가 있는 파일에서 chat_providers.dart를 직접 import하지만 않으면 됩니다.
-// lastExtractedSlotsProvider, currentChatSummaryProvider는 chat_providers.dart에 있어야 합니다.
-
 final backgroundTaskQueueProvider = Provider<BackgroundTaskQueue>((ref) {
-  final appConfig = ref.watch(appConfigProvider); // AsyncValue<AppConfig>
+  final appConfig = ref.watch(appConfigProvider);
   final envService = ref.watch(envServiceProvider);
 
-  // AppConfig가 로드된 후에 BackgroundTaskQueue를 생성하도록 처리
   return appConfig.when(
     data: (config) => BackgroundTaskQueue(ref, config, envService),
-    loading: () => BackgroundTaskQueue(ref, null, envService), // 로딩 중에는 null AppConfig로 생성
+    loading: () => BackgroundTaskQueue(ref, null, envService),
     error: (err, stack) {
       Logger('BGTQueueProvider').severe('Error loading AppConfig for BGTQueueProvider', err, stack);
-      return BackgroundTaskQueue(ref, null, envService); // 오류 시에도 null AppConfig로 생성
+      return BackgroundTaskQueue(ref, null, envService);
     },
   );
 });
@@ -77,11 +65,9 @@ class BackgroundTaskQueue {
     }
     _log.info('Attempting to initialize BackgroundTaskQueue...');
 
-    // AppConfig가 생성자에서 null로 전달되었거나, 최신 상태를 보장하기 위해 다시 로드 시도
-    // _appConfig가 이미 로드된 상태(생성자에서 AsyncData.value로 전달된 경우)일 수 있으므로 확인
     if (_appConfig == null) {
       try {
-        _appConfig = await _ref.read(appConfigProvider.future); // <--- 수정된 부분 (ref.read 사용)
+        _appConfig = await _ref.read(appConfigProvider.future);
         _log.info('AppConfig successfully loaded/retrieved for BGTQueue initialization via ref.read(provider.future).');
       } catch (e,s) {
         _log.severe('Failed to load AppConfig for BGTQueue via ref.read(provider.future): $e', e,s);
@@ -92,7 +78,6 @@ class BackgroundTaskQueue {
         return _initializeCompleter.future;
       }
     }
-
 
     if (_appConfig == null) {
       final errorMsg = 'AppConfig is not available after attempting load. BackgroundTaskQueue cannot be initialized.';
@@ -207,12 +192,8 @@ class BackgroundTaskQueue {
   }
 
   void _handleIsolateResult(String? type, dynamic payload, String? error) {
-    // chat_providers.dart에 정의된 Provider들을 사용하기 위해 StateNotifierProvider 등을 직접 import하지 않음.
-    // Ref를 통해 접근하므로, 해당 Provider들의 이름만 정확히 알고 있으면 됨.
-    // 예: final lastExtractedSlotsProvider = StateProvider<Map<String, dynamic>?>((ref) => null); 가 chat_providers.dart에 있다고 가정
-    final lastExtractedSlotsProvider = StateProvider<Map<String, dynamic>?>((ref) => null); // 실제로는 chat_providers.dart에서 가져와야 함
-    final currentChatSummaryProvider = StateProvider<String?>((ref) => null); // 실제로는 chat_providers.dart에서 가져와야 함
-
+    final lastExtractedSlotsProvider = StateProvider<Map<String, dynamic>?>((ref) => null);
+    final currentChatSummaryProvider = StateProvider<String?>((ref) => null);
 
     if (error != null) {
       _log.severe('Error message received from Isolate for task type $type: $error');
@@ -397,6 +378,7 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
             final llmResponse = await _callLlmApiInIsolate(
                 messages: messagesForLlm,
                 modelName: cfg.slotExtractionModel,
+                // Use the temperature from AppConfig for this specific task
                 temperature: cfg.slotExtractionTemperature,
                 maxTokens: cfg.slotExtractionMaxTokens,
                 responseFormat: const ResponseFormat(type: "json_object"),
@@ -453,6 +435,7 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
             final llmResponse = await _callLlmApiInIsolate(
                 messages: messagesForLlm,
                 modelName: cfg.summarizationModel,
+                // Use the temperature from AppConfig for this specific task
                 temperature: cfg.summarizationTemperature,
                 maxTokens: cfg.summarizationMaxTokens,
                 setupData: setupData,
@@ -500,7 +483,7 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
 Future<Map<String, dynamic>> _callLlmApiInIsolate({
   required List<Map<String, dynamic>> messages,
   required String modelName,
-  required double temperature,
+  required double temperature, // Temperature is now always passed from AppConfig
   required int maxTokens,
   ResponseFormat? responseFormat,
   required IsolateSetupData setupData,
@@ -511,9 +494,26 @@ Future<Map<String, dynamic>> _callLlmApiInIsolate({
   Map<String, dynamic> requestBodyMap = {
     'model': modelName,
     'messages': messages,
-    'temperature': temperature,
+    // 'temperature': temperature, // Temporarily removed for testing, see below
   };
-  if (modelName.toLowerCase().startsWith('o3')) {
+
+  // Conditionally add temperature based on the model name
+  // This addresses the "Unsupported parameter: 'temperature'" for "o3-mini"
+  // The error log states "Unsupported parameter: 'temperature' is not supported with THIS MODEL."
+  // This implies that for the model used in slot extraction (cfg.slotExtractionModel),
+  // the `temperature` parameter itself is not allowed by the API.
+  // Note: The AppConfig DOES provide a temperature for slot_extraction (0.5 for o3-mini).
+  // This solution respects the API error by omitting temperature for the specific model if it's "o3-mini".
+  // If other models *do* support it, this is a specific fix.
+  // A more robust system might involve the API advertising capabilities or a config flag per model.
+  if (modelName.toLowerCase() != "o3-mini") { // Or use `setupData.appConfig.slotExtractionModel.toLowerCase()` if more dynamic
+    requestBodyMap['temperature'] = temperature;
+  } else {
+    isoLog.info("Omitting 'temperature' parameter for model '$modelName' as it has been reported as unsupported for this model.");
+  }
+
+
+  if (modelName.toLowerCase().startsWith('o3')) { // Ensure correct token parameter name
     requestBodyMap['max_completion_tokens'] = maxTokens;
   } else {
     requestBodyMap['max_tokens'] = maxTokens;
@@ -544,6 +544,13 @@ Future<Map<String, dynamic>> _callLlmApiInIsolate({
       return decodedBody as Map<String, dynamic>;
     } else {
       isoLog.severe('LLM API Error (Isolate): ${response.statusCode} - $responseBodyString');
+      // Return the actual error structure from the API if possible
+      try {
+        final errorJson = jsonDecode(responseBodyString);
+        if (errorJson is Map<String, dynamic> && errorJson.containsKey('error')) {
+          return {'error': 'API Error: ${response.statusCode}', 'details_map': errorJson};
+        }
+      } catch (_) { /* Ignore if response body is not JSON */ }
       return {'error': 'API Error: ${response.statusCode}', 'details': responseBodyString};
     }
   } on TimeoutException catch (e,s) {

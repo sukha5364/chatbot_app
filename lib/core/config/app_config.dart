@@ -1,5 +1,5 @@
 // lib/core/config/app_config.dart
-import 'dart:convert'; // jsonDecode를 위해 사용 (YamlMap을 Map<String,dynamic>으로 변환 시)
+import 'dart:convert'; // jsonDecode and jsonEncode
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:yaml/yaml.dart';
 import 'package:decathlon_demo_app/core/services/env_service.dart';
@@ -10,8 +10,6 @@ class AppConfig {
   final _log = Logger('AppConfig');
 
   // LLM Service Config (EnvService에서 관리)
-  // late final String o3LlmApiKey; // EnvService에서 가져옴
-  // late final String o3LlmApiEndpoint; // EnvService에서 가져옴
   late final String primaryLlmModelName;
   late final String secondaryLlmModelName;
 
@@ -47,8 +45,6 @@ class AppConfig {
 
   // Private constructor
   AppConfig._({
-    // required this.o3LlmApiKey, // EnvService에서 가져옴
-    // required this.o3LlmApiEndpoint, // EnvService에서 가져옴
     required this.primaryLlmModelName,
     required this.secondaryLlmModelName,
     required this.slotExtractionModel,
@@ -73,24 +69,36 @@ class AppConfig {
     required this.toolDefinitions,
   });
 
-  // YamlMap을 일반 Map<String, dynamic>으로 변환하는 헬퍼 함수
-  static Map<String, dynamic> _convertYamlMapToMap(YamlMap yamlMap) {
-    final Map<String, dynamic> map = {};
-    yamlMap.nodes.forEach((key, value) {
-      if (key is YamlScalar) {
-        map[key.value.toString()] = _convertNodeToValue(value.value);
-      }
-    });
-    return map;
-  }
-
+  // Helper function to deeply convert YamlNodes to standard Dart types.
   static dynamic _convertNodeToValue(dynamic node) {
     if (node is YamlMap) {
       return _convertYamlMapToMap(node);
     } else if (node is YamlList) {
-      return node.nodes.map(_convertNodeToValue).toList();
+      // Ensure elements of the list are also converted
+      return node.nodes.map((e) => _convertNodeToValue(e)).toList();
+    } else if (node is YamlScalar) {
+      // YamlScalar's value property holds the actual Dart type (String, int, double, bool, null)
+      return node.value;
     }
+    // If it's already a standard Dart type (e.g., from a default value), return as is.
     return node;
+  }
+
+  // Helper function to convert YamlMap to standard Map<String, dynamic>.
+  static Map<String, dynamic> _convertYamlMapToMap(YamlMap yamlMap) {
+    final Map<String, dynamic> map = {};
+    yamlMap.nodes.forEach((keyNode, valueNode) {
+      String key;
+      // Ensure the key is a String
+      if (keyNode is YamlScalar) {
+        key = keyNode.value.toString();
+      } else {
+        // Fallback, though YAML keys are typically scalars.
+        key = keyNode.toString();
+      }
+      map[key] = _convertNodeToValue(valueNode); // Recursively convert values
+    });
+    return map;
   }
 
   static Future<AppConfig> load(EnvService envService) async {
@@ -98,27 +106,28 @@ class AppConfig {
     log.info("Loading AppConfig from YAML and .env...");
 
     final yamlString = await rootBundle.loadString('assets/config/app_config.yaml');
-    final dynamic yamlDoc = loadYaml(yamlString);
+    final dynamic yamlDocNode = loadYamlNode(yamlString); // Use loadYamlNode for more control
 
-    if (yamlDoc == null || !(yamlDoc is YamlMap)) {
+    if (yamlDocNode == null || !(yamlDocNode is YamlMap)) {
       log.severe('Failed to load or parse app_config.yaml. Content was null or not a YamlMap.');
       throw Exception('Failed to load or parse app_config.yaml');
     }
-    final YamlMap yamlMap = yamlDoc;
+    final YamlMap yamlMap = yamlDocNode;
 
-    // Helper to get nested values safely from YamlMap
+    // Helper to get nested values safely from YamlMap and ensure they are converted
     dynamic getYamlValue(List<String> path, dynamic defaultValue) {
-      dynamic current = yamlMap;
+      dynamic currentYamlNode = yamlMap;
       for (String key in path) {
-        if (current is YamlMap && current.containsKey(key)) {
-          current = current[key];
+        if (currentYamlNode is YamlMap && currentYamlNode.containsKey(key)) {
+          currentYamlNode = currentYamlNode[key]; // currentYamlNode is now a YamlNode
         } else {
           log.warning("YAML path '${path.join('.')}' not found, using default: $defaultValue");
+          // If default value is provided, return it directly (it's already a Dart type)
           return defaultValue;
         }
       }
-      // YamlScalar/YamlList/YamlMap 등을 Dart 기본 타입으로 변환
-      return _convertNodeToValue(current);
+      // Convert the final YamlNode to a standard Dart type/structure
+      return _convertNodeToValue(currentYamlNode);
     }
 
     // 프롬프트 파일 내용 로드 함수
@@ -146,26 +155,32 @@ class AppConfig {
 
     // Tool Definitions 파싱
     final List<ToolDefinition> parsedToolDefinitions = [];
-    final dynamic yamlToolDefinitionsRaw = getYamlValue(['tool_definitions'], []); // 기본값으로 빈 리스트
+    // getYamlValue now returns fully converted Dart structures
+    final dynamic toolDefinitionsData = getYamlValue(['tool_definitions'], []);
 
-    if (yamlToolDefinitionsRaw is List) {
-      final List<dynamic> yamlToolDefinitions = yamlToolDefinitionsRaw;
-      for (var toolDefRaw in yamlToolDefinitions) {
-        if (toolDefRaw is Map<String, dynamic>) { // _convertNodeToValue가 Map<String,dynamic>으로 변환했음을 가정
+    if (toolDefinitionsData is List) {
+      for (var toolDefItem in toolDefinitionsData) {
+        if (toolDefItem is Map<String, dynamic>) { // Expecting Map<String, dynamic> after conversion
           try {
-            // Freezed 모델의 fromJson을 사용하기 위해 Map<String, dynamic>으로 변환
-            parsedToolDefinitions.add(ToolDefinition.fromJson(toolDefRaw));
+            parsedToolDefinitions.add(ToolDefinition.fromJson(toolDefItem));
           } catch (e, s) {
-            log.severe("Failed to parse tool definition: $toolDefRaw. Error: $e", e, s);
+            // Log the problematic map for easier debugging
+            String problematicItemJson = "{ parsing error }";
+            try {
+              problematicItemJson = jsonEncode(toolDefItem);
+            } catch (_) {}
+            log.severe(
+                "Failed to parse tool definition from fully converted map: $problematicItemJson. Error: $e",
+                e, s
+            );
           }
         } else {
-          log.warning("Skipping invalid tool definition item (not a Map): $toolDefRaw");
+          log.warning("Skipping invalid tool definition item (not a Map<String, dynamic> after YAML conversion): $toolDefItem, type: ${toolDefItem.runtimeType}");
         }
       }
     } else {
-      log.warning("Tool definitions in YAML is not a list or is missing. Found: ${yamlToolDefinitionsRaw.runtimeType}");
+      log.warning("Tool definitions in YAML is not a list or is missing after conversion. Found: ${toolDefinitionsData.runtimeType}");
     }
-
 
     final config = AppConfig._(
       primaryLlmModelName: getYamlValue(['llm_service', 'primary_llm_model_name'], 'o3') as String,
@@ -197,6 +212,9 @@ class AppConfig {
     );
     log.info("AppConfig loaded and initialized successfully.");
     log.fine("Loaded config details: Primary Model='${config.primaryLlmModelName}', Tool Definitions Count='${config.toolDefinitions.length}'");
+    if (config.toolDefinitions.isEmpty && (toolDefinitionsData is List && toolDefinitionsData.isNotEmpty)) {
+      log.warning("Tool definitions were present in YAML but failed to parse into ToolDefinition objects. Check SEVERE logs above.");
+    }
     return config;
   }
 }
