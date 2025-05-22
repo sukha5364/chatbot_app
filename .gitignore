@@ -55,3 +55,6 @@ Thumbs.db
 # fabric.io.*
 # com.crashlytics.*
 # io.fabric.sdk.android.*
+
+# FVM Version Cache
+.fvm/

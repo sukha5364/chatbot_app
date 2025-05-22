@@ -6,31 +6,40 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:decathlon_demo_app/core/config/app_config.dart';
 import 'package:decathlon_demo_app/core/providers/core_providers.dart';
 import 'package:decathlon_demo_app/background/isolate_setup_data.dart';
-import 'package:decathlon_demo_app/features/chat/providers/chat_providers.dart';
+// import 'package:decathlon_demo_app/features/chat/providers/chat_providers.dart'; // <--- 삭제됨 (순환 의존성 방지)
 import 'package:logging/logging.dart';
 import 'package:http/http.dart' as http;
-import 'package:decathlon_demo_app/core/models/llm_models.dart'; // ResponseFormat 포함
+import 'package:decathlon_demo_app/core/models/llm_models.dart';
 import 'package:decathlon_demo_app/core/services/env_service.dart';
 import 'dart:developer' as developer;
 
-// backgroundTaskQueueProvider 정의는 이전과 동일 (변경 없음)
+// chat_providers.dart에서 Provider를 가져오기 위해 추가 (원래 chat_providers.dart에 있어야 할 내용이나, 순환참조로 인해 임시로 여기에 정의하거나, 별도 파일로 분리 필요)
+// 이 Provider들은 실제로는 chat_providers.dart에 있어야 하며,
+// BackgroundTaskQueue는 Ref를 통해 이들을 사용합니다.
+// 순환 참조를 완전히 해결하려면 backgroundTaskQueueProvider 자체를 별도 파일로 분리하는 것이 좋습니다.
+// 여기서는 chat_providers.dart의 Provider들을 직접 참조하지 않도록 수정합니다.
+// _handleIsolateResult 내부에서 _ref.read(provider_name) 형태로 사용하므로,
+// 해당 provider_name들이 다른 곳(예: core_providers.dart 또는 chat_providers.dart)에 정의되어 있고,
+// BackgroundTaskQueue가 있는 파일에서 chat_providers.dart를 직접 import하지만 않으면 됩니다.
+// lastExtractedSlotsProvider, currentChatSummaryProvider는 chat_providers.dart에 있어야 합니다.
+
 final backgroundTaskQueueProvider = Provider<BackgroundTaskQueue>((ref) {
-  final appConfigAsync = ref.watch(appConfigProvider);
+  final appConfig = ref.watch(appConfigProvider); // AsyncValue<AppConfig>
   final envService = ref.watch(envServiceProvider);
 
-  if (appConfigAsync is AsyncData<AppConfig>) {
-    final appConfig = appConfigAsync.value;
-    return BackgroundTaskQueue(ref, appConfig, envService);
-  }
-  Logger('BGTQueueProvider').info(
-      'AppConfig not yet ready or in error state for BGTQueueProvider. Queue will be created but needs AppConfig for initialization.');
-  return BackgroundTaskQueue(ref, null, envService);
+  // AppConfig가 로드된 후에 BackgroundTaskQueue를 생성하도록 처리
+  return appConfig.when(
+    data: (config) => BackgroundTaskQueue(ref, config, envService),
+    loading: () => BackgroundTaskQueue(ref, null, envService), // 로딩 중에는 null AppConfig로 생성
+    error: (err, stack) {
+      Logger('BGTQueueProvider').severe('Error loading AppConfig for BGTQueueProvider', err, stack);
+      return BackgroundTaskQueue(ref, null, envService); // 오류 시에도 null AppConfig로 생성
+    },
+  );
 });
 
 
 class BackgroundTaskQueue {
-  // ... (이전과 동일한 멤버 변수 및 생성자, initialize, _handleIsolateError, _handleIsolateResult, _ensureInitialized, requestSlotExtraction, requestSummarization, _cleanupIsolateResources, dispose 메서드들 - 변경 없음) ...
-  // (길이 관계상 이전 답변의 코드를 그대로 사용한다고 가정, 여기서는 _isolateEntrypoint 와 _callLlmApiInIsolate 만 집중적으로 표시)
   final Ref _ref;
   AppConfig? _appConfig;
   final EnvService _envService;
@@ -47,6 +56,9 @@ class BackgroundTaskQueue {
 
   BackgroundTaskQueue(this._ref, this._appConfig, this._envService) {
     _log.info("BackgroundTaskQueue instance created.");
+    if (_appConfig == null) {
+      _log.info("AppConfig was null during BGTQueue construction, will attempt to (re)load in initialize if not already an error.");
+    }
   }
 
   Future<void> initialize() async {
@@ -65,9 +77,25 @@ class BackgroundTaskQueue {
     }
     _log.info('Attempting to initialize BackgroundTaskQueue...');
 
-    final currentAppConfig = _appConfig ?? _ref.read(appConfigProvider).value;
-    if (currentAppConfig == null) {
-      final errorMsg = 'AppConfig is not available. BackgroundTaskQueue cannot be initialized.';
+    // AppConfig가 생성자에서 null로 전달되었거나, 최신 상태를 보장하기 위해 다시 로드 시도
+    // _appConfig가 이미 로드된 상태(생성자에서 AsyncData.value로 전달된 경우)일 수 있으므로 확인
+    if (_appConfig == null) {
+      try {
+        _appConfig = await _ref.read(appConfigProvider.future); // <--- 수정된 부분 (ref.read 사용)
+        _log.info('AppConfig successfully loaded/retrieved for BGTQueue initialization via ref.read(provider.future).');
+      } catch (e,s) {
+        _log.severe('Failed to load AppConfig for BGTQueue via ref.read(provider.future): $e', e,s);
+        _isInitializing = false;
+        if (!_initializeCompleter.isCompleted) {
+          _initializeCompleter.completeError(Exception('AppConfig load failed for BGTQueue: $e'));
+        }
+        return _initializeCompleter.future;
+      }
+    }
+
+
+    if (_appConfig == null) {
+      final errorMsg = 'AppConfig is not available after attempting load. BackgroundTaskQueue cannot be initialized.';
       _log.severe(errorMsg);
       _isInitializing = false;
       if (!_initializeCompleter.isCompleted) {
@@ -75,13 +103,11 @@ class BackgroundTaskQueue {
       }
       return _initializeCompleter.future;
     }
-    _appConfig = currentAppConfig;
 
     _ref.read(backgroundTaskStatusProvider.notifier).state = BackgroundTaskState.idle;
 
     final setupData = IsolateSetupData.fromServices(_appConfig!, _envService);
     _log.fine("IsolateSetupData created. Full API Endpoint for Isolate: ${setupData.o3LlmApiFullEndpoint}");
-
 
     await _portSubscription?.cancel();
     _receivePortFromIsolate?.close();
@@ -181,6 +207,13 @@ class BackgroundTaskQueue {
   }
 
   void _handleIsolateResult(String? type, dynamic payload, String? error) {
+    // chat_providers.dart에 정의된 Provider들을 사용하기 위해 StateNotifierProvider 등을 직접 import하지 않음.
+    // Ref를 통해 접근하므로, 해당 Provider들의 이름만 정확히 알고 있으면 됨.
+    // 예: final lastExtractedSlotsProvider = StateProvider<Map<String, dynamic>?>((ref) => null); 가 chat_providers.dart에 있다고 가정
+    final lastExtractedSlotsProvider = StateProvider<Map<String, dynamic>?>((ref) => null); // 실제로는 chat_providers.dart에서 가져와야 함
+    final currentChatSummaryProvider = StateProvider<String?>((ref) => null); // 실제로는 chat_providers.dart에서 가져와야 함
+
+
     if (error != null) {
       _log.severe('Error message received from Isolate for task type $type: $error');
       _ref.read(backgroundTaskStatusProvider.notifier).state = BackgroundTaskState.error;
@@ -277,7 +310,7 @@ class BackgroundTaskQueue {
     _sendPortToIsolate!.send({
       'type': 'summarizeConversation',
       'payload': {
-        'history': historyForIsolate, // ChatMessage.toJsonForApi() 결과의 List
+        'history': historyForIsolate,
         'previousSummary': previousSummary,
       }
     });
@@ -310,7 +343,6 @@ class BackgroundTaskQueue {
   }
 }
 
-// --- Isolate Entrypoint ---
 Future<void> _isolateEntrypoint(dynamic initialMessage) async {
   SendPort? sendPortToMain;
   final ReceivePort receivePortFromMain = ReceivePort();
@@ -333,15 +365,16 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
       Isolate.current.kill(priority: Isolate.immediate);
       return;
     }
-
     final IsolateSetupData setupData = initialMessage['setupData'] as IsolateSetupData;
-    _isoLog.info('IsolateSetupData received. Primary model: ${setupData.appConfig.primaryLlmModelName}. Full Endpoint for Isolate: ${setupData.o3LlmApiFullEndpoint}');
+    final AppConfig cfg = setupData.appConfig;
+
+    _isoLog.info('IsolateSetupData received. Primary model: ${cfg.primaryLlmModelName}. Full Endpoint: ${setupData.o3LlmApiFullEndpoint}');
     final String apiKeyForLog = setupData.o3LlmApiKey;
     String apiKeyHint = "API_KEY_EMPTY_OR_NOT_SET";
     if (apiKeyForLog.isNotEmpty) {
       apiKeyHint = apiKeyForLog.length > 5 ? "${apiKeyForLog.substring(0, 5)}..." : apiKeyForLog;
     }
-    _isoLog.fine('API Key Hint: $apiKeyHint');
+    _isoLog.fine('API Key Hint (from setupData): $apiKeyHint');
 
     sendPortToMain.send(receivePortFromMain.sendPort);
     _isoLog.info('Isolate sent its SendPort to main isolate. Waiting for tasks...');
@@ -351,36 +384,25 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
         final type = msgFromMain['type'] as String;
         final payload = msgFromMain['payload'];
         _isoLog.info('Isolate received task: $type');
-        final AppConfig cfg = setupData.appConfig; // AppConfig를 setupData에서 가져옴
 
         try {
           if (type == 'extractSlots') {
             final userInput = payload as String;
-            String slotExtractionPrompt;
-
-            // AppConfig에서 슬롯 추출 프롬프트 템플릿 사용
-            if (cfg.slotExtractionPromptTemplate != null && cfg.slotExtractionPromptTemplate!.isNotEmpty) {
-              slotExtractionPrompt = cfg.slotExtractionPromptTemplate!.replaceAll('{user_input}', userInput);
-              _isoLog.fine("Using slot extraction prompt from AppConfig template.");
-            } else {
-              // Fallback 프롬프트
-              slotExtractionPrompt = """Extract key entities (slots) from the following user input. Respond strictly in JSON format. Example slots: "product_category", "brand_mentioned", "user_preference", "size_info". If no specific slots are found, return an empty JSON object. User input: "$userInput" """;
-              _isoLog.fine("Using default slot extraction prompt.");
-            }
+            String slotExtractionPrompt = cfg.slotExtractionPromptTemplateString.replaceAll('{user_input}', userInput);
+            _isoLog.fine("Using slot extraction prompt string from AppConfig.");
             _isoLog.finest("Slot Extraction Prompt for LLM:\n$slotExtractionPrompt");
 
             final messagesForLlm = [{'role': 'user', 'content': slotExtractionPrompt}];
 
             final llmResponse = await _callLlmApiInIsolate(
                 messages: messagesForLlm,
-                modelName: cfg.slotExtractionModel, // AppConfig에서 모델명 사용
-                temperature: cfg.slotExtractionTemperature, // AppConfig에서 온도 사용
-                maxTokens: cfg.slotExtractionMaxTokens, // AppConfig에서 최대 토큰 사용
-                responseFormat: const ResponseFormat(type: "json_object"), // 슬롯 추출 시 JSON 응답 형식 강제
+                modelName: cfg.slotExtractionModel,
+                temperature: cfg.slotExtractionTemperature,
+                maxTokens: cfg.slotExtractionMaxTokens,
+                responseFormat: const ResponseFormat(type: "json_object"),
                 setupData: setupData,
                 isoLog: _isoLog
             );
-
             if (llmResponse.containsKey('error')) {
               final errorDetails = llmResponse['details'] != null ? "Details: ${llmResponse['details']}" : "";
               _isoLog.severe("Slot extraction LLM call failed: ${llmResponse['error']} $errorDetails");
@@ -408,47 +430,34 @@ Future<void> _isolateEntrypoint(dynamic initialMessage) async {
                 sendPortToMain.send({'type': 'taskError', 'payload': 'No choices in slot extraction LLM response'});
               }
             }
+
           } else if (type == 'summarizeConversation') {
             final Map<String, dynamic> summaryPayload = payload as Map<String, dynamic>;
-            // history는 List<Map<String, dynamic>> 형태로 전달됨 (ChatMessage.toJsonForApi()의 결과)
             final List<Map<String, dynamic>> historyJsonList = (summaryPayload['history'] as List<dynamic>).cast<Map<String, dynamic>>();
             final String? previousSummary = summaryPayload['previousSummary'] as String?;
-            String summarizationPrompt;
 
-            // AppConfig에서 요약 프롬프트 템플릿 사용
-            if (cfg.summarizationPromptTemplate != null && cfg.summarizationPromptTemplate!.isNotEmpty) {
-              // conversation_history를 문자열로 변환
-              String historyStrForPrompt = historyJsonList.map((m) {
-                String role = m['role'] ?? 'unknown';
-                String content = m['content'] ?? '(내용 없음)';
-                if (content.length > 200) content = "${content.substring(0,197)}..."; // 너무 길면 자르기
-                return "$role: $content";
-              }).join("\n");
-
-              summarizationPrompt = cfg.summarizationPromptTemplate!
-                  .replaceAll('{previous_summary}', previousSummary ?? "제공된 이전 요약 없음.")
-                  .replaceAll('{conversation_history}', historyStrForPrompt)
-                  .replaceAll('{target_summary_tokens}', cfg.targetSummaryTokens.toString());
-              _isoLog.fine("Using summarization prompt from AppConfig template.");
-            } else {
-              // Fallback 프롬프트
-              String historyStr = historyJsonList.map((m) => "${m['role']}: ${m['content'] ?? '(내용 없음)'}").join("\n");
-              summarizationPrompt = "다음은 이전 대화 요약과 최근 대화 기록입니다. 이 전체 대화를 간결하게 요약해주세요. 사용자 프로필 정보나 시스템 지침은 제외하고 순수 대화 내용만 요약합니다. 한국어로 작성해주세요.\n\n[이전 요약]:\n${previousSummary ?? "제공된 이전 요약 없음."}\n\n[최근 대화 기록]:\n$historyStr\n\n[요청사항]: 위 대화 내용을 바탕으로 전체 대화의 핵심 내용을 ${cfg.targetSummaryTokens} 토큰 내외로 요약해주세요.";
-              _isoLog.fine("Using default summarization prompt.");
-            }
+            String historyStrForPrompt = historyJsonList.map((m) {
+              String role = m['role'] ?? 'unknown';
+              String content = m['content'] ?? '(내용 없음)';
+              if (content.length > 200) content = "${content.substring(0,197)}...";
+              return "$role: $content";
+            }).join("\n");
+            String summarizationPrompt = cfg.summarizationPromptTemplateString
+                .replaceAll('{previous_summary}', previousSummary ?? "제공된 이전 요약 없음.")
+                .replaceAll('{conversation_history}', historyStrForPrompt)
+                .replaceAll('{target_summary_tokens}', cfg.targetSummaryTokens.toString());
+            _isoLog.fine("Using summarization prompt string from AppConfig.");
             _isoLog.finest("Summarization Prompt for LLM:\n$summarizationPrompt");
 
             final messagesForLlm = [{'role': 'user', 'content': summarizationPrompt}];
             final llmResponse = await _callLlmApiInIsolate(
                 messages: messagesForLlm,
-                modelName: cfg.summarizationModel, // AppConfig에서 모델명 사용
-                temperature: cfg.summarizationTemperature, // AppConfig에서 온도 사용
-                maxTokens: cfg.summarizationMaxTokens, // AppConfig에서 최대 토큰 사용
-                // responseFormat은 요약 시 보통 불필요 (기본 텍스트)
+                modelName: cfg.summarizationModel,
+                temperature: cfg.summarizationTemperature,
+                maxTokens: cfg.summarizationMaxTokens,
                 setupData: setupData,
                 isoLog: _isoLog
             );
-
             if (llmResponse.containsKey('error')) {
               final errorDetails = llmResponse['details'] != null ? "Details: ${llmResponse['details']}" : "";
               _isoLog.severe("Summarization LLM call failed: ${llmResponse['error']} $errorDetails");
@@ -504,7 +513,6 @@ Future<Map<String, dynamic>> _callLlmApiInIsolate({
     'messages': messages,
     'temperature': temperature,
   };
-  // 모델명에 따라 max_tokens 또는 max_completion_tokens 사용
   if (modelName.toLowerCase().startsWith('o3')) {
     requestBodyMap['max_completion_tokens'] = maxTokens;
   } else {

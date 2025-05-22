@@ -8,22 +8,21 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:logging/logging.dart';
 import 'package:decathlon_demo_app/core/providers/core_providers.dart';
 import 'package:decathlon_demo_app/core/services/env_service.dart';
-import 'package:decathlon_demo_app/background/background_task_queue.dart'; // backgroundTaskQueueProvider
+import 'package:decathlon_demo_app/background/background_task_queue.dart'; // <--- 이미 추가되어 있어야 함 (5번 항목과 연관)
 
-// 로깅 설정 함수
 void _setupLogging() {
-  Logger.root.level = Level.ALL; // 개발 중에는 상세 로깅, 배포 시 INFO 등으로 조정
+  Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print
     print(
-        '[${record.time.hour.toString().padLeft(2, '0')}:${record.time.minute.toString().padLeft(2, '0')}:${record.time.second.toString().padLeft(2, '0')}.${record.time.millisecond.toString().padLeft(3, '0')}] ${record.level.name.padRight(7)}: ${record.loggerName.padRight(25)}: ${record.message}'); // loggerName 길이 조정
+        '[${record.time.hour.toString().padLeft(2, '0')}:${record.time.minute.toString().padLeft(2, '0')}:${record.time.second.toString().padLeft(2, '0')}.${record.time.millisecond.toString().padLeft(3, '0')}] ${record.level.name.padRight(7)}: ${record.loggerName.padRight(25)}: ${record.message}');
     if (record.error != null) {
       // ignore: avoid_print
       print('  ERROR: ${record.error}');
     }
-    if (record.stackTrace != null && record.level.value >= Level.SEVERE.value) { // 심각한 오류 시에만 스택 트레이스 출력 (선택)
+    if (record.stackTrace != null && record.level.value >= Level.SEVERE.value) {
       // ignore: avoid_print
-      // print('  STACKTRACE: ${record.stackTrace}'); // 너무 길어서 주석 처리 (필요시 해제)
+      // print('  STACKTRACE: ${record.stackTrace}');
     }
   });
 }
@@ -33,42 +32,31 @@ Future<void> main() async {
   _setupLogging();
   final log = Logger('AppMain');
 
-  // 1. EnvService 로드 (필수)
   try {
     await EnvService.instance.load();
     log.info(".env file processing attempted by EnvService.");
   } catch (e) {
     log.severe("Critical error during EnvService.load(): $e. App might not function correctly.", e);
-    // EnvService 로드 실패 시 앱 실행을 중단하거나 대체 흐름을 제공해야 할 수 있음
   }
-
-  // ProviderScope로 앱을 감싸서 Riverpod 사용 가능하게 함
   runApp(const ProviderScope(child: MyAppEntry()));
 }
 
-// AppConfig 및 BackgroundTaskQueue 초기화를 처리하기 위한 중간 위젯
 class MyAppEntry extends ConsumerWidget {
   const MyAppEntry({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final log = Logger('MyAppEntry');
-    // AppConfig 로드 상태를 watch
     final appConfigAsyncValue = ref.watch(appConfigProvider);
 
     return appConfigAsyncValue.when(
       data: (appConfig) {
         log.info("AppConfig loaded successfully. Now initializing BackgroundTaskQueue...");
-        // AppConfig 로드 성공 후 BackgroundTaskQueue 초기화 시도
-        // backgroundTaskQueueProvider는 AppConfig에 의존하므로, 여기서 read하면
-        // AppConfig가 주입된 인스턴스를 받게 됨.
-        // 이 인스턴스의 initialize()를 호출하고 그 결과를 기다림.
         return FutureBuilder<void>(
-          future: ref.read(backgroundTaskQueueProvider).initialize().timeout(
-              const Duration(seconds: 25), // BGTQ 초기화 타임아웃
+          future: ref.read(backgroundTaskQueueProvider).initialize().timeout( // <--- 여기!
+              const Duration(seconds: 25),
               onTimeout: () {
                 log.severe("BackgroundTaskQueue initialization timed out in MyAppEntry.");
-                // 여기서 에러를 throw하면 아래 error 빌더에서 처리됨
                 throw Exception("BackgroundTaskQueue initialization timed out.");
               }
           ),
@@ -81,7 +69,7 @@ class MyAppEntry extends ConsumerWidget {
               return _buildErrorScreen("백그라운드 서비스 초기화 실패: ${snapshot.error}");
             } else {
               log.info("BackgroundTaskQueue initialized successfully. Starting MyApp.");
-              return const MyApp(); // 실제 앱 위젯 반환
+              return const MyApp();
             }
           },
         );
@@ -134,7 +122,6 @@ class MyAppEntry extends ConsumerWidget {
   }
 }
 
-
 class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
@@ -144,7 +131,7 @@ class MyApp extends ConsumerWidget {
       title: 'Decathlon AI Chatbot Demo',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system, // 시스템 설정에 따르도록 변경 또는 ThemeMode.dark 유지
+      themeMode: ThemeMode.system,
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -155,7 +142,7 @@ class MyApp extends ConsumerWidget {
         Locale('ko', 'KR'),
         Locale('en', 'US'),
       ],
-      locale: const Locale('ko', 'KR'), // 기본 로케일 한국어
+      locale: const Locale('ko', 'KR'),
       home: const LoginScreen(),
     );
   }

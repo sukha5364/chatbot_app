@@ -1,12 +1,10 @@
-// 파일 경로: lib/core/services/o3_llm_service.dart
+// lib/core/services/o3_llm_service.dart
 import 'dart:convert';
-// import 'package:flutter_riverpod/flutter_riverpod.dart'; // 사용되지 않아 삭제
 import 'package:http/http.dart' as http;
 import 'package:decathlon_demo_app/core/models/chat_message.dart';
 import 'package:decathlon_demo_app/core/models/llm_models.dart';
 import 'package:decathlon_demo_app/core/services/env_service.dart';
 import 'package:decathlon_demo_app/core/constants/app_constants.dart';
-// import 'package:decathlon_demo_app/core/providers/core_providers.dart'; // 사용되지 않아 삭제
 import 'package:logging/logging.dart';
 
 class O3LlmService {
@@ -17,7 +15,7 @@ class O3LlmService {
 
   Future<LlmApiResponse> getChatCompletion({
     required List<ChatMessage> conversationHistory,
-    required List<ToolDefinition> tools,
+    required List<ToolDefinition> tools, // <--- 수정됨: Non-nullable로 변경 (사용자 제안 3번)
     String? toolChoice,
     bool usePrimaryModel = true,
     double temperature = 0.7,
@@ -47,7 +45,8 @@ class O3LlmService {
     final requestPayload = LlmApiRequest(
       model: modelName,
       messages: messagesForApi,
-      tools: tools.isNotEmpty ? tools : null,
+      // tools 리스트가 비어있으면 null을 전달하여 API 요청에서 제외 (LlmApiRequest의 includeIfNull: false 활용)
+      tools: tools.isNotEmpty ? tools : null, // <--- 수정됨
       toolChoice: toolChoice,
       temperature: temperature,
       maxTokens: effectiveMaxTokens,
