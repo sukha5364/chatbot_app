@@ -273,3 +273,33 @@ class RecommendedProduct with _$RecommendedProduct {
   factory RecommendedProduct.fromJson(Map<String, dynamic> json) =>
       _$RecommendedProductFromJson(json);
 }
+
+// 12. reportUnresolvedQuery
+// API 명세: ReportUnresolvedQuery
+class ReportUnresolvedQueryResponse {
+  final bool success;
+  final String message;
+  final String reportId;
+
+  ReportUnresolvedQueryResponse({
+    required this.success,
+    required this.message,
+    required this.reportId,
+  });
+
+  factory ReportUnresolvedQueryResponse.fromJson(Map<String, dynamic> json) {
+    return ReportUnresolvedQueryResponse(
+      success: json['success'] as bool? ?? false,
+      message: json['message'] as String? ?? '',
+      reportId: json['reportId'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'success': success,
+      'message': message,
+      'reportId': reportId,
+    };
+  }
+}

@@ -19,6 +19,7 @@ import 'package:logging/logging.dart';
 class ChatOrchestrationService {
   final Ref _ref;
   final O3LlmService _o3LlmService;
+  final MockApiService _mockApiService;
   final UserProfile? _currentUserProfile;
   final AppConfig _appConfig;
   final ToolRegistry _toolRegistry;
@@ -36,6 +37,7 @@ class ChatOrchestrationService {
     required UserProfile? currentUserProfile,
   })  : _ref = ref,
         _o3LlmService = o3LlmService,
+        _mockApiService = mockApiService,
         _appConfig = appConfig,
         _currentUserProfile = currentUserProfile,
         _toolRegistry = ToolRegistry() {
@@ -354,11 +356,31 @@ $contextBlock
       }
 
       if (i == _appConfig.maxToolIterations - 1) {
-        _log.warning("Max tool iterations reached. LLM did not provide a final text response.");
-        if (assistantMessageFromLlm.toolCalls != null && assistantMessageFromLlm.toolCalls!.isNotEmpty) {
-          _addAssistantErrorMessage("죄송합니다, 요청을 처리하는 데 예상보다 많은 단계가 필요하여 완료하지 못했습니다. 조금 더 구체적으로 질문해주시겠어요? (최대 반복 도달)");
+        _log.warning("Max tool iterations reached without satisfactory answer. Sending to CS.");
+
+        _addAssistantMessage("죄송합니다. 즉시 답변을 드리지 못했습니다. 이 내용을 CS 센터로 전달하여, 담당자가 확인 후 연락드리도록 하겠습니다.\nCS 담당자 번호 : XXX-XXXX-XXXX");
+
+        try {
+          final userId = _currentUserProfile!.id;
+          final apiResponse = await _mockApiService.reportUnresolvedQuery(
+            userId: userId,
+            userQuestion: userInput,
+          );
+
+          final reportPayload = apiResponse.toJson();
+          _ref.read(chatMessagesProvider.notifier).addMessage(
+            ChatMessage(
+              role: MessageRole.tool,
+              toolCallId: "reportUnresolvedQuery",
+              name: "reportUnresolvedQuery",
+              content: jsonEncode(reportPayload),
+              timestamp: DateTime.now(),
+            ),
+          );
+        } catch (e, s) {
+          _log.severe("Error calling reportUnresolvedQuery API: $e", e, s);
+          _addAssistantErrorMessage("CS 문의 접수 중 오류가 발생했습니다. 다시 시도해주세요.");
         }
-        break;
       }
     }
 

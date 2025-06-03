@@ -219,6 +219,27 @@ class RecommendProductsByFeaturesRunner implements ToolRunner {
   }
 }
 
+class ReportUnresolvedQueryRunner implements ToolRunner {
+  @override
+  String get name => 'reportUnresolvedQuery';
+
+  @override
+  Future<Map<String, dynamic>> run(String argsJson, Ref ref) async {
+    final args = jsonDecode(argsJson) as Map<String, dynamic>;
+    final mockService = ref.read(mockApiServiceProvider);
+
+    final userId = args['userId'] as String;
+    final userQuestion = args['userQuestion'] as String;
+
+    final response = await mockService.reportUnresolvedQuery(
+      userId: userId,
+      userQuestion: userQuestion,
+    );
+    // toJson()가 Map<String, dynamic> 형태로 반환됨
+    return response.toJson();
+  }
+}
+
 // 모든 ToolRunner 인스턴스를 생성하여 리스트로 반환하는 함수 (ToolRegistry에 등록하기 위함)
 List<ToolRunner> getAllMockApiToolRunners() {
   return [
@@ -233,5 +254,6 @@ List<ToolRunner> getAllMockApiToolRunners() {
     GetConversationHistoryRunner(),
     FindNearbyStoresRunner(),
     RecommendProductsByFeaturesRunner(),
+    ReportUnresolvedQueryRunner(),
   ];
 }
