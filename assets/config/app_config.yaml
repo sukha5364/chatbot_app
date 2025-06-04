@@ -59,7 +59,7 @@ tool_definitions:
   - type: "function"
     function:
       name: "getProductInfo"
-      description: "제품명(필수)과 브랜드명(선택)으로 제품의 상세 정보(설명, 가격, 사용 가능한 사이즈/색상, 이미지 URL 등) 또는 '제품 없음' 정보를 반환합니다. 제품 문의나 비교 시 사용됩니다."
+      description: "제품명(필수)과 브랜드명(선택)으로 제품의 상세 정보(설명, 가격, 사용 가능한 사이즈/색상, 이미지 URL 키 등) 또는 '제품 없음' 정보를 반환합니다. 제품 문의나 비교 시 사용되며, 반환된 imageUrl 키를 통해 앱에서 이미지를 표시할 수 있습니다." # MODIFIED
       parameters:
         type: "object"
         properties:
@@ -69,6 +69,9 @@ tool_definitions:
           brandName:
             type: "string"
             description: "조회할 제품의 브랜드명 (선택 사항)"
+          displayImage: # ADDED
+            type: "boolean"
+            description: "제품 정보를 응답할 때 앱에서 관련 이미지를 함께 표시하도록 하려면 true로 설정합니다. 기본값은 false입니다."
         required: ["productName"]
 
   - type: "function"
@@ -215,7 +218,7 @@ tool_definitions:
   - type: "function"
     function:
       name: "recommendProductsByFeatures"
-      description: "사용자가 원하는 제품의 여러 특징들(예: '가벼움', '방수', '발목보호'), 선택적 카테고리, 최대 결과 수(선택 사항, 기본 3개)를 입력받아, 해당 특징에 부합하는 추천 제품 목록(제품명, 간단 설명, 가격) 또는 '추천 제품 없음' 정보를 반환합니다. '어떤 거 추천해줘' 와 같은 사용자 질문에 사용됩니다."
+      description: "사용자가 원하는 제품의 여러 특징들(예: '가벼움', '방수', '발목보호'), 선택적 카테고리, 최대 결과 수(선택 사항, 기본 3개)를 입력받아, 해당 특징에 부합하는 추천 제품 목록(제품명, 간단 설명, 가격, 이미지 URL 키 등) 또는 '추천 제품 없음' 정보를 반환합니다. 반환된 imageUrl 키를 통해 앱에서 이미지를 표시할 수 있습니다." # MODIFIED
       parameters:
         type: "object"
         properties:
@@ -230,6 +233,9 @@ tool_definitions:
           maxResults:
             type: "integer"
             description: "추천받을 최대 제품 수 (선택 사항, 기본값은 3)"
+          displayImage: # ADDED
+            type: "boolean"
+            description: "추천 제품 정보를 응답할 때 앱에서 관련 이미지를 함께 표시하도록 하려면 true로 설정합니다. 기본값은 false입니다."
         required: ["features"]
 
 # 참고: 위 YAML 구조는 LLM 모델의 Function Calling/Tool 사용 명세와 최대한 유사하게 구성되었습니다.

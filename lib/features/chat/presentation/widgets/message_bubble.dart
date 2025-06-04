@@ -1,7 +1,6 @@
 // 파일 경로: lib/features/chat/presentation/widgets/message_bubble.dart
 import 'package:decathlon_demo_app/core/models/chat_message.dart';
 import 'package:flutter/material.dart';
-// import 'package:decathlon_demo_app/core/theme/app_theme.dart'; // 사용되지 않아 삭제
 
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -19,34 +18,35 @@ class MessageBubble extends StatelessWidget {
     final alignment = isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final bubbleColor = isCurrentUser
         ? theme.colorScheme.primary
-    // : theme.colorScheme.surfaceVariant; // 이전 코드
-        : theme.colorScheme.surfaceContainerHighest; // surfaceVariant -> surfaceContainerHighest
+        : theme.colorScheme.surfaceContainerHighest;
     final textColor = isCurrentUser
         ? theme.colorScheme.onPrimary
-    // : theme.colorScheme.onSurfaceVariant; // onSurfaceVariant 는 onSurfaceContainerHighest 와 쌍이 아닐 수 있음
-        : theme.colorScheme.onSurface; // onSurfaceContainerHighest의 텍스트는 보통 onSurface
+        : theme.colorScheme.onSurface;
 
-    Widget messageContent;
+    Widget messagePrimaryContent;
 
+    // Tool call messages
     if (message.role == MessageRole.tool) {
-      messageContent = Column(
+      messagePrimaryContent = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "🛠️ Function Call: ${message.name ?? 'N/A'}",
+            "🛠️ Function Call Result: ${message.name ?? 'N/A'}",
             style: theme.textTheme.bodySmall?.copyWith(
-                color: textColor.withAlpha((255 * 0.8).round()), // withOpacity 대체
+                color: textColor.withAlpha((255 * 0.8).round()),
                 fontStyle: FontStyle.italic),
           ),
           const SizedBox(height: 4),
           Text(
             message.content ?? '(No content for tool message)',
-            style: theme.textTheme.bodyMedium?.copyWith(color: textColor.withAlpha((255 * 0.9).round())), // withOpacity 대체
+            style: theme.textTheme.bodyMedium?.copyWith(color: textColor.withAlpha((255 * 0.9).round())),
           ),
         ],
       );
-    } else if (message.toolCalls != null && message.toolCalls!.isNotEmpty) {
-      messageContent = Column(
+    }
+    // Assistant requests for tool calls
+    else if (message.toolCalls != null && message.toolCalls!.isNotEmpty) {
+      messagePrimaryContent = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (message.content != null && message.content!.isNotEmpty) ...[
@@ -55,7 +55,7 @@ class MessageBubble extends StatelessWidget {
           ],
           Text(
             "Function Calls Requested:",
-            style: theme.textTheme.labelSmall?.copyWith(color: textColor.withAlpha((255 * 0.8).round())), // withOpacity 대체
+            style: theme.textTheme.labelSmall?.copyWith(color: textColor.withAlpha((255 * 0.8).round())),
           ),
           ...message.toolCalls!.map((tc) => Padding(
             padding: const EdgeInsets.only(top: 2.0, left: 8.0),
@@ -64,11 +64,54 @@ class MessageBubble extends StatelessWidget {
         ],
       );
     }
+    // Regular text content
     else {
-      messageContent = Text(
+      messagePrimaryContent = Text(
         message.content ?? '(메시지 내용 없음)',
         style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
       );
+    }
+
+    // Image display logic
+    Widget? imageWidget;
+    if (message.localImagePath != null && message.localImagePath!.isNotEmpty) {
+      try {
+        imageWidget = Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.6, // 이미지 최대 너비
+              maxHeight: 200, // 이미지 최대 높이
+            ),
+            child: ClipRRect( // 이미지 모서리 둥글게
+              borderRadius: BorderRadius.circular(12.0),
+              child: Image.asset(
+                message.localImagePath!,
+                fit: BoxFit.cover, // 이미지가 영역에 맞게 채워지도록
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    height: 50,
+                    color: Colors.grey[300],
+                    child: Center(
+                      child: Text(
+                        '이미지 로드 실패',
+                        style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      } catch (e) {
+        // Log error or handle appropriately
+        imageWidget = Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Text('[이미지 표시 오류: ${e.toString()}]', style: TextStyle(color: Colors.red[700], fontSize: 12)),
+        );
+      }
     }
 
     return Column(
@@ -87,20 +130,27 @@ class MessageBubble extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withAlpha((255 * 0.05).round()), // withOpacity 대체
+                  color: Colors.black.withAlpha((255 * 0.05).round()),
                   blurRadius: 3,
                   offset: const Offset(0, 1),
                 )
               ]
           ),
-          child: messageContent,
+          child: Column( // Image and text content arranged vertically
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, // Align content to the start
+            children: [
+              if (imageWidget != null) imageWidget,
+              messagePrimaryContent,
+            ],
+          ),
         ),
         const SizedBox(height: 2),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
           child: Text(
             _roleToDisplayString(message.role),
-            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurface.withAlpha((255 * 0.6).round())), // onBackground -> onSurface, withOpacity 대체
+            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurface.withAlpha((255 * 0.6).round())),
           ),
         )
       ],
@@ -113,7 +163,6 @@ class MessageBubble extends StatelessWidget {
       case MessageRole.assistant: return "데카트론 AI";
       case MessageRole.tool: return "Function Result";
       case MessageRole.system: return "System";
-    // 모든 MessageRole 열거형 값이 case로 처리되었으므로 default는 제거 (unreachable_switch_default 경고 해결)
     }
   }
 }

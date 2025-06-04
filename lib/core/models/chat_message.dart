@@ -38,6 +38,7 @@ class ChatMessage with _$ChatMessage {
     @JsonKey(name: 'tool_call_id', includeIfNull: false) String? toolCallId,
     @JsonKey(includeIfNull: false) String? name, // 주로 tool 역할 메시지에서 함수명으로 사용
     DateTime? timestamp, // ✨ 타임스탬프 필드 추가
+    String? localImagePath, // ADDED: 로컬 이미지 경로를 위한 필드
   }) = _ChatMessage;
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) =>
@@ -62,7 +63,7 @@ class ChatMessage with _$ChatMessage {
     if (name != null) { // role이 'tool'일 때 주로 사용
       jsonOutput['name'] = name;
     }
-    // timestamp는 API 요청 본문에는 포함되지 않으므로 여기서 제외합니다.
+    // timestamp와 localImagePath는 API 요청 본문에는 포함되지 않으므로 여기서 제외합니다.
     return jsonOutput;
   }
 }

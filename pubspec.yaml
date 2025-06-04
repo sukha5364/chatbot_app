@@ -46,3 +46,14 @@ flutter:
   assets:
     - .env
     - assets/config/
+    - assets/product_images/ # ADDED: 제품 이미지 폴더
+    # 예시 이미지 파일 (실제 파일이 이 경로에 있어야 합니다):
+    # - assets/product_images/kalenji_run_support.png
+    # - assets/product_images/kiprun_ks500.png
+    # - assets/product_images/quechua_air_seconds_4_2_fb.png
+    # - assets/product_images/kipsta_f900_football.png
+    # - assets/product_images/domyos_seamless_leggings.png
+    # - assets/product_images/quechua_folding_chair.png
+    # - assets/product_images/kipsta_soft_football.png
+    # - assets/product_images/iwikido_beach_shelter.png
+    # - assets/product_images/kiprun_kd500.png # KIPRUN KD500 이미지도 추가

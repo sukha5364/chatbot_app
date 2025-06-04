@@ -1,12 +1,7 @@
 // 파일 경로: lib/core/services/mock_api_service.dart
 import 'dart:convert'; // For jsonEncode if needed for complex logging
-// import 'package:flutter_riverpod/flutter_riverpod.dart'; // Provider 정의가 삭제되므로 주석 처리 또는 삭제 가능
 import 'package:decathlon_demo_app/core/models/api_models.dart';
 import 'package:logging/logging.dart';
-
-// final mockApiServiceProvider = Provider<MockApiService>((ref) { // ⬅️ 이 부분을 삭제 또는 주석 처리
-//   return MockApiService();
-// });
 
 class MockApiService {
   final _log = Logger('MockApiService');
@@ -73,6 +68,7 @@ class MockApiService {
       {required String productName, String? brandName}) async {
     _log.info("[MockAPI] getProductInfo called for productName: '$productName', brandName: '$brandName'");
     Map<String, dynamic> responseData;
+    // imageUrl 필드에 image_utils.dart 에서 사용할 수 있는 키 또는 제품명을 사용
     if (productName == "KALENJI RUN SUPPORT") {
       responseData = {
         "found": true, "productName": "KALENJI RUN SUPPORT", "brandName": "KALENJI",
@@ -80,63 +76,63 @@ class MockApiService {
         "price": 65000.0,
         "availableSizes": ["250mm", "260mm", "270mm", "280mm"],
         "availableColors": ["블루", "블랙", "네온 그린"],
-        "imageUrl": "https://contents.mediadecathlon.com/p2602496/k\$c48993d048591db8c9c9ea6b8d3d94a9/%EB%82%A8%EC%84%B1-%EB%9F%AC%EB%8B%9D%ED%99%94-ks500-2-kiprun-8772865.jpg?f=768x0&format=auto"
+        "imageUrl": "KALENJI RUN SUPPORT" // image_utils.dart 에서 이 키로 이미지 검색
       };
     } else if (productName == "KIPRUN KS500") {
       responseData = {
         "found": true, "productName": "KIPRUN KS500", "brandName": "KIPRUN",
         "description": """안정적인 지지력과 뛰어난 쿠셔닝이 장점입니다. (약 89,000원) (견본품 정보)""",
         "price": 89000.0, "availableSizes": ["260mm", "270mm", "280mm"], "availableColors": ["블랙", "그레이"],
-        "imageUrl": "https://contents.mediadecathlon.com/p2006099/k\$7e8d8f4a5c6d7e8f9a0b1c2d3e4f5g6h/sqr/kiprun-ks500-men-s-running-shoes-black-grey.jpg?format=auto"
+        "imageUrl": "KIPRUN KS500"
       };
     } else if (productName == "KIPRUN KD500") {
       responseData = {
         "found": true, "productName": "KIPRUN KD500", "brandName": "KIPRUN",
         "description": """경량성과 쿠셔닝의 조화가 좋습니다. (약 99,000원) (견본품 정보)""",
         "price": 99000.0, "availableSizes": ["255mm", "265mm", "275mm"], "availableColors": ["레드", "블루"],
-        "imageUrl": "https://contents.mediadecathlon.com/p1854831/k\$7e8d8f4a5c6d7e8f9a0b1c2d3e4f5g6h/sqr/run-support-men-s-running-shoes-blue-yellow.jpg?format=auto"
+        "imageUrl": "KIPRUN KD500"
       };
     } else if (productName == "QUECHUA AIR SECONDS 4.2 FRESH&BLACK") {
       responseData = {
         "found": true, "productName": "QUECHUA AIR SECONDS 4.2 FRESH&BLACK", "brandName": "QUECHUA",
         "description": """공기 주입식이라 설치가 매우 간편하고, 방수 및 차광 기능이 뛰어난 4인용 텐트입니다. (견본품 정보)""",
         "price": 459000.0, "availableSizes": ["4인용"], "availableColors": ["카키", "네이비", "그레이"],
-        "imageUrl": "https://contents.mediadecathlon.com/p2170400/k\$7e8d8f4a5c6d7e8f9a0b1c2d3e4f5g6h/sqr/air-seconds-4-2-f-b-inflatable-tent-4-person-2-bedroom.jpg?format=auto"
+        "imageUrl": "QUECHUA AIR SECONDS 4.2 FRESH&BLACK"
       };
     } else if (productName == "KIPSTA F900 프로 축구공") {
       responseData = {
         "found": true, "productName": "KIPSTA F900 프로 축구공", "brandName": "KIPSTA",
         "description": """FIFA Quality Pro 인증을 받은 최상급 경기용 축구공입니다. (견본품 정보)""",
         "price": 45000.0, "availableSizes": ["5호", "4호"], "availableColors": ["화이트/블루"],
-        "imageUrl": "https://contents.mediadecathlon.com/p1982093/k\$7e8d8f4a5c6d7e8f9a0b1c2d3e4f5g6h/sqr/f900-fifa-quality-pro-football-ball-size-5-white-blue.jpg?format=auto"
+        "imageUrl": "KIPSTA F900 프로 축구공"
       };
     } else if (productName == "DOMYOS 여성용 심리스 레깅스") {
       responseData = {
         "found": true, "productName": "DOMYOS 여성용 심리스 레깅스", "brandName": "DOMYOS",
         "description": """봉제선을 최소화하여 착용감이 매우 부드럽고 활동성이 뛰어난 제품입니다. (견본품 정보)""",
         "price": 29900.0, "availableSizes": ["XS", "S", "M", "L", "XL"], "availableColors": ["블랙", "네이비", "버건디"],
-        "imageUrl": "https://contents.mediadecathlon.com/p2010950/k\$7e8d8f4a5c6d7e8f9a0b1c2d3e4f5g6h/sqr/women-s-seamless-7-8-fitness-leggings-black.jpg?format=auto"
+        "imageUrl": "DOMYOS 여성용 심리스 레깅스"
       };
     } else if (productName == "QUECHUA 컴팩트 폴딩 캠핑 의자") {
       responseData = {
         "found": true, "productName": "QUECHUA 컴팩트 폴딩 캠핑 의자", "brandName": "QUECHUA",
         "description": """가볍고 작게 접혀 휴대와 보관이 용이한 캠핑 의자입니다. (18,000원) (견본품 정보)""",
         "price": 18000.0, "availableSizes": ["단일 사이즈"], "availableColors": ["카키", "블루", "그레이"],
-        "imageUrl": "https://contents.mediadecathlon.com/p2070004/k\$8f7e3d0f0d0e5c1e0b8f8f8f8f8f8f8f/sqrsize-300x300/folding-low-camping-chair-mh100.jpg?format=auto"
+        "imageUrl": "QUECHUA 컴팩트 폴딩 캠핑 의자"
       };
     } else if (productName == "KIPSTA 소프트 축구공 4호") {
       responseData = {
         "found": true, "productName": "KIPSTA 소프트 축구공 4호", "brandName": "KIPSTA",
         "description": """안전한 부드러운 소재로 만들어져 아이들이 실내외에서 가지고 놀기 좋은 축구공입니다. (12,000원) (견본품 정보)""",
         "price": 12000.0, "availableSizes": ["4호"], "availableColors": ["옐로우", "오렌지"],
-        "imageUrl": "https://contents.mediadecathlon.com/p1611750/k\$e8b1c6c721676367f6b0d0d9e4e5e6e7/sqrsize-300x300/mini-football-sunny-300-size-1-yellow.jpg?format=auto"
+        "imageUrl": "KIPSTA 소프트 축구공 4호"
       };
     } else if (productName == "IWIKIDO 컴팩트 비치 쉘터") {
       responseData = {
         "found": true, "productName": "IWIKIDO 컴팩트 비치 쉘터", "brandName": "IWIKIDO",
         "description": """자외선 차단(UPF 50+) 기능이 있으며, 간편하게 설치하고 해체할 수 있는 소형 그늘막입니다. (29,900원) (견본품 정보)""",
         "price": 29900.0, "availableSizes": ["1-2인용"], "availableColors": ["블루/옐로우", "민트"],
-        "imageUrl": "https://contents.mediadecathlon.com/p1936229/k\$b1f3ac7db4248b553a5355811d079d12/sqrsize-300x300/beach-shelter-iwiko-180-1-adult-2-children-anti-uv-orange-blue.jpg?format=auto"
+        "imageUrl": "IWIKIDO 컴팩트 비치 쉘터"
       };
     }
     else {
@@ -145,8 +141,6 @@ class MockApiService {
     return GetProductInfoResponse.fromJson(await _delayedResponse(responseData));
   }
 
-  // ... (getStoreStock, getProductLocationInStore, getStoreInfo, getUserPurchaseHistory, getProductReviews, generateOrderQRCode, getConversationHistory, findNearbyStores, recommendProductsByFeatures 메서드들은 이전과 동일하게 유지) ...
-  // (길이 관계상 생략, 실제 파일에서는 모든 메서드 유지)
   // --- 3. getStoreStock ---
   Future<GetStoreStockResponse> getStoreStock(
       {required String productName,
@@ -347,9 +341,9 @@ class MockApiService {
       }
     }
     String qrData = "DECA_ORDER_MOCK|$orderId|$userId|$productName|QTY:$quantity|SZ:$size|CLR:$color|STORE:$storeName|AMT:${finalAmount.toInt()}|COUPON:${couponId ?? 'NONE'}|${DateTime.now().toIso8601String()}";
-
     if (basePrice > 0) {
-      responseData = { "success": true, "qrCodeData": qrData, "orderId": orderId, "finalAmount": finalAmount, "message": "$discountInfo 결제 QR 생성 완료." };
+      responseData = { "success": true, "qrCodeData": qrData, "orderId": orderId, "finalAmount": finalAmount, "message": "$discountInfo 결제 QR 생성 완료."
+      };
     } else {
       responseData = {"success": false, "message": """주문($productName)에 대한 QR 코드 생성에 실패했습니다."""};
     }
@@ -393,7 +387,6 @@ class MockApiService {
       {"name": "데카트론 청라점", "address": "인천광역시 서구 청라커낼로 252", "approximateDistance": "약 8km (연수구에서)", "operatingHours": "10:00 - 21:00"},
       {"name": "데카트론 인천논현점", "address": "인천광역시 남동구 논고개로 87", "approximateDistance": "약 5km (연수구에서)", "operatingHours": "10:00 - 21:30"},
     ];
-
     List<Map<String,String>> foundStores = [];
     if (currentLocation.contains("강남")) {
       foundStores = allStores.where((s) => s["address"]!.contains("강남") || s["address"]!.contains("서초")).toList();
@@ -418,14 +411,13 @@ class MockApiService {
     _log.info("[MockAPI] recommendProductsByFeatures for $features, category: $category, max: $maxResults");
     Map<String, dynamic> responseData;
     List<Map<String,dynamic>> allProducts = [
-      { "productName": "KIPRUN KS500", "brandName": "KIPRUN", "shortDescription": "안정적인 지지력과 뛰어난 쿠셔닝이 장점입니다.", "price": 89000.0, "imageUrl": "https://contents.mediadecathlon.com/p2602496/k\$c48993d048591db8c9c9ea6b8d3d94a9/%EB%82%A8%EC%84%B1-%EB%9F%AC%EB%8B%9D%ED%99%94-ks500-2-kiprun-8772865.jpg?f=768x0&format=auto", "tags": ["러닝화", "지지력", "쿠셔닝", "중급자"], "category": "러닝화"},
-      { "productName": "KALENJI RUN SUPPORT", "brandName": "KALENJI", "shortDescription": "발목 지지 기능이 강화되었고, 입문용으로 적합합니다.", "price": 65000.0, "imageUrl": "https://contents.mediadecathlon.com/p2602496/k\$c48993d048591db8c9c9ea6b8d3d94a9/%EB%82%A8%EC%84%B1-%EB%9F%AC%EB%8B%9D%ED%99%94-ks500-2-kiprun-8772865.jpg?f=768x0&format=auto", "tags": ["러닝화", "발목 지지", "쿠셔닝", "가성비", "입문자"], "category": "러닝화"},
-      { "productName": "KIPRUN KD500", "brandName": "KIPRUN", "shortDescription": "경량성과 쿠셔닝의 조화가 좋습니다.", "price": 99000.0, "imageUrl": "https://contents.mediadecathlon.com/p2715935/k\$70c3c361b79cf5101b3a9be6c762828d/%EB%82%A8%EC%84%B1-%EB%9F%AC%EB%8B%9D%ED%99%94-kd900-2-kiprun-8830252.jpg?f=768x0&format=auto", "tags": ["러닝화", "경량성", "쿠셔닝", "발목 지지"], "category": "러닝화"},
-      { "productName": "QUECHUA 컴팩트 폴딩 캠핑 의자", "brandName": "QUECHUA", "shortDescription": "가볍고 작게 접혀 휴대와 보관이 용이합니다.", "price": 18000.0, "imageUrl": "https://contents.mediadecathlon.com/p2579615/k\$f04d276912664dda16ee754cf8915658/%EC%BA%A0%ED%95%91-%EC%A1%B0%EB%A6%BD%EC%8B%9D-%EC%9D%98%EC%9E%90-xl-%EB%A1%9C%EC%9A%B0%EC%B2%B4%EC%96%B4-mh500-quechua-8512943.jpg?f=768x0&format=auto", "tags": ["캠핑의자", "휴대용", "접이식", "경량"], "category": "캠핑의자"},
-      { "productName": "KIPSTA 소프트 축구공 4호", "brandName": "KIPSTA", "shortDescription": "안전한 부드러운 소재로 아이들용으로 좋습니다.", "price": 12000.0, "imageUrl": "https://contents.mediadecathlon.com/p2769828/k\$01edc9bc97140e199ae0973af0b468e4/%EC%9A%B8%ED%8A%B8%EB%9D%BC%EB%9D%BC%EC%9D%B4%ED%8A%B8-%EC%86%8C%ED%94%84%ED%8A%B8%EB%B3%BC-%EC%B6%95%EA%B5%AC%EA%B3%B5-5%ED%98%B8-kipsta-8867508.jpg?f=768x0&format=auto", "tags": ["축구공", "소프트", "아이들용", "경량"], "category": "축구공"},
-      { "productName": "IWIKIDO 컴팩트 비치 쉘터", "brandName": "IWIKIDO", "shortDescription": "자외선 차단, 간편 설치 가능한 소형 그늘막입니다.", "price": 29900.0, "imageUrl": "https://contents.mediadecathlon.com/p2423054/k\$026f08f6e0f7aebad9099393efe8b56e/%EC%BA%A0%ED%95%91-%ED%8F%B4-%EC%A1%B0%EB%A6%BD-%EC%89%98%ED%84%B0-1%EC%9D%B8%EC%9A%A9-%EC%95%84%EB%A5%B4%ED%8E%98%EB%82%98%EC%A6%88-0-quechua-8669495.jpg?f=768x0&format=auto", "tags": ["그늘막", "비치용품", "자외선차단", "간편설치", "소형"], "category": "캠핑용품"}
+      { "productName": "KIPRUN KS500", "brandName": "KIPRUN", "shortDescription": "안정적인 지지력과 뛰어난 쿠셔닝이 장점입니다.", "price": 89000.0, "imageUrl": "KIPRUN KS500", "tags": ["러닝화", "지지력", "쿠셔닝", "중급자"], "category": "러닝화"},
+      { "productName": "KALENJI RUN SUPPORT", "brandName": "KALENJI", "shortDescription": "발목 지지 기능이 강화되었고, 입문용으로 적합합니다.", "price": 65000.0, "imageUrl": "KALENJI RUN SUPPORT", "tags": ["러닝화", "발목 지지", "쿠셔닝", "가성비", "입문자"], "category": "러닝화"},
+      { "productName": "KIPRUN KD500", "brandName": "KIPRUN", "shortDescription": "경량성과 쿠셔닝의 조화가 좋습니다.", "price": 99000.0, "imageUrl": "KIPRUN KD500", "tags": ["러닝화", "경량성", "쿠셔닝", "발목 지지"], "category": "러닝화"},
+      { "productName": "QUECHUA 컴팩트 폴딩 캠핑 의자", "brandName": "QUECHUA", "shortDescription": "가볍고 작게 접혀 휴대와 보관이 용이합니다.", "price": 18000.0, "imageUrl": "QUECHUA 컴팩트 폴딩 캠핑 의자", "tags": ["캠핑의자", "휴대용", "접이식", "경량"], "category": "캠핑의자"},
+      { "productName": "KIPSTA 소프트 축구공 4호", "brandName": "KIPSTA", "shortDescription": "안전한 부드러운 소재로 아이들용으로 좋습니다.", "price": 12000.0, "imageUrl": "KIPSTA 소프트 축구공 4호", "tags": ["축구공", "소프트", "아이들용", "경량"], "category": "축구공"},
+      { "productName": "IWIKIDO 컴팩트 비치 쉘터", "brandName": "IWIKIDO", "shortDescription": "자외선 차단, 간편 설치 가능한 소형 그늘막입니다.", "price": 29900.0, "imageUrl": "IWIKIDO 컴팩트 비치 쉘터", "tags": ["그늘막", "비치용품", "자외선차단", "간편설치", "소형"], "category": "캠핑용품"}
     ];
-
     List<Map<String,dynamic>> recommendedProducts = [];
     for (var product in allProducts) {
       bool categoryMatch = category == null || category.isEmpty || product['category'] == category;
@@ -445,6 +437,8 @@ class MockApiService {
         var productCopy = Map<String,dynamic>.from(product);
         productCopy.remove('tags');
         productCopy['matchedFeatures'] = matchedFeaturesForProduct;
+        // Ensure imageUrl is set to the product name or a specific key if not already
+        productCopy['imageUrl'] = product['imageUrl'] ?? product['productName'];
         recommendedProducts.add(productCopy);
       }
     }
@@ -467,26 +461,22 @@ class MockApiService {
     required String userQuestion,
   }) async {
     _log.info("[MockAPI] reportUnresolvedQuery called for userId: $userId, question: '$userQuestion'");
-
     // 1. 여기서 간단히 딜레이를 준 뒤, 고유 reportId를 생성한다고 가정
     await Future.delayed(const Duration(milliseconds: 300));
-
     // 2. reportId를 대화를 진행한 유저와 예시로 생성한 타임스탬프 기반으로 생성
     String reportId = "";
-    if (userId == "new_runner01") {
+    if (userId == "new_runner01") { // 사용자 ID 일관성 유지 (newrunner_01)
       reportId = "CS-1-${DateTime.now().millisecondsSinceEpoch}";
-    }
-    if (userId == "camping_master") {
+    } else if (userId == "camping_master") {
       reportId = "CS-2-${DateTime.now().millisecondsSinceEpoch}";
-    }
-    if (userId == "soccer_lover_7") {
+    } else if (userId == "soccer_lover_7") {
       reportId = "CS-3-${DateTime.now().millisecondsSinceEpoch}";
-    }
-    if (userId == "daily_active_user") {
+    } else if (userId == "daily_active_user") {
       reportId = "CS-4-${DateTime.now().millisecondsSinceEpoch}";
-    }
-    if (userId == "family_shopper") {
+    } else if (userId == "family_shopper") {
       reportId = "CS-5-${DateTime.now().millisecondsSinceEpoch}";
+    } else {
+      reportId = "CS-UNKNOWN-${DateTime.now().millisecondsSinceEpoch}";
     }
 
 
@@ -496,7 +486,6 @@ class MockApiService {
       'message': "문의가 CS 센터로 전달되었습니다 (ID: $reportId). 담당자가 확인 후 회신드립니다.",
       'reportId': reportId,
     };
-
     _log.info("Returning mock response: ${jsonEncode(responseData)}");
     return ReportUnresolvedQueryResponse.fromJson(responseData);
   }
