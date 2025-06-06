@@ -465,7 +465,7 @@ class MockApiService {
     await Future.delayed(const Duration(milliseconds: 300));
     // 2. reportId를 대화를 진행한 유저와 예시로 생성한 타임스탬프 기반으로 생성
     String reportId = "";
-    if (userId == "new_runner01") { // 사용자 ID 일관성 유지 (newrunner_01)
+    if (userId == "newrunner_01") {
       reportId = "CS-1-${DateTime.now().millisecondsSinceEpoch}";
     } else if (userId == "camping_master") {
       reportId = "CS-2-${DateTime.now().millisecondsSinceEpoch}";

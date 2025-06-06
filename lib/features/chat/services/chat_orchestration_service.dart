@@ -53,22 +53,22 @@ class ChatOrchestrationService {
 
   List<ChatMessage> _buildSystemMessages() {
     _log.fine("Building system messages...");
-    String userInfoForPrompt = "현재 사용자는 다음과 같습니다: ";
+    String userInfoForPrompt = "Current users are as follows: ";
     if (_currentUserProfile != null) {
       userInfoForPrompt +=
-      "ID '${_currentUserProfile.id}', 이름 '${_currentUserProfile.name}', 나이 ${_currentUserProfile.age}세, 성별 '${_currentUserProfile.gender}'. ";
+      "ID '${_currentUserProfile.id}', Name '${_currentUserProfile.name}', Age ${_currentUserProfile.age} years old, Gender '${_currentUserProfile.gender}'. ";
       if (_currentUserProfile.preferredSports.isNotEmpty) {
         userInfoForPrompt +=
-        "선호 스포츠는 ${_currentUserProfile.preferredSports.join(', ')} 입니다. ";
+        "prefered sports : ${_currentUserProfile.preferredSports.join(', ')} ";
       }
       if (_currentUserProfile.otherInfo != null &&
           _currentUserProfile.otherInfo!.isNotEmpty) {
-        userInfoForPrompt += "기타 정보: ${_currentUserProfile.otherInfo}. ";
+        userInfoForPrompt += "Other information: ${_currentUserProfile.otherInfo}. ";
       }
     } else {
-      userInfoForPrompt += "비로그인 사용자 또는 정보 없음. ";
+      userInfoForPrompt += "Non-login user or no information";
     }
-    userInfoForPrompt += "모든 답변은 한국어로, 사용자 맞춤형으로 친절하고 상세하게 안내해주세요.";
+    userInfoForPrompt += "All answers must be Korean, and please guide in a friendly and detailed way customized.";
 
     final int recentKTurns = _appConfig.recentKTurns;
     final String? currentSummary = _ref.read(currentChatSummaryProvider);
@@ -144,18 +144,18 @@ class ChatOrchestrationService {
     }
     contextBlock += "--- 대화 맥락 끝 ---\n";
     String baseSystemPrompt = """
-당신은 '데카트론 코리아'의 전문 AI 상담원입니다. 당신의 주요 목표는 고객이 스포츠 활동 및 일상 생활에 필요한 최적의 데카트론 제품을 찾도록 돕는 것입니다.
-모든 답변은 한국어로 공손하게 제공해야 합니다.
-당신은 아래에 정의된 함수(Tools)들을 사용하여 고객에게 필요한 정보를 제공하거나 요청을 처리할 수 있습니다.
-제공된 함수들의 설명을 잘 읽고, 사용자의 질문 의도에 가장 적합한 함수를 선택하여 호출해야 합니다.
-함수 호출 시에는 'parameters'에 정의된 모든 'required' 인자들을 반드시 포함해야 하며, 각 인자의 타입과 설명을 준수해야 합니다.
-만약 여러 단계의 함수 호출이 필요하다면, 순차적으로 호출하고 그 결과를 종합하여 최종 답변을 생성해주세요.
-'displayImage' 파라미터가 있는 함수의 경우, 제품 이미지를 보여주는 것이 사용자에게 도움이 된다고 판단되면 해당 파라미터를 true로 설정하여 호출할 수 있습니다.
-결제(generateOrderQRCode) 등 민감한 작업 전에는 사용자에게 내용을 요약하여 채팅창에서 텍스트로 재확인 질문을 하고, 사용자의 긍정적인 답변('네', '맞아요' 등)을 받은 후에 해당 함수를 호출하도록 유도해야 합니다. (주의: 당신이 직접 함수를 호출하는 것이 아니라, 사용자에게 확인을 요청하는 메시지를 생성해야 합니다.)
+You are a professional AI counselor at 'Decathlon Korea'. Your main goal is to help your clients find the optimal Decathlon products for their sports activities and daily lives.
+All answers should be provided respectfully in Korean.
+You can use the functions(tools) defined below to provide the customer with the information they need or to process the request.
+You should read the descriptions of the provided functions carefully and select and call the function that best fits the user's question intention.
+All 'required' factors defined in 'parameters' must be included when calling a function, and the type and description of each factor must be observed.
+If you need multiple steps of function calling, please call sequentially and synthesize the results to generate the final answer.
+For functions with the 'displayImage' parameter, if it is determined that showing the product image is beneficial to the user, the parameter can be set to true and called.
+Before sensitive tasks(such as generateOrderQRCode), the user should be asked to summarize the contents and ask a double-check question in text in the chat window, and the function should be called after receiving a positive response from the user ('네', '맞아요', etc.). (Note: Instead of calling the function yourself, you should generate a message asking the user to confirm.)
 
 $userInfoForPrompt
 $contextBlock
-사용자의 현재 질문에 대해 답변해주세요.
+Please answer the user's current question.
     """;
     return [ChatMessage(role: MessageRole.system, content: baseSystemPrompt.trim())];
   }
