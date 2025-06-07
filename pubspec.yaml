@@ -46,6 +46,7 @@ flutter:
   assets:
     - .env
     - assets/config/
+    - assets/prompts/
     - assets/product_images/ # ADDED: 제품 이미지 폴더
     # 예시 이미지 파일 (실제 파일이 이 경로에 있어야 합니다):
     # - assets/product_images/kalenji_run_support.png

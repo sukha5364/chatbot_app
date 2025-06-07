@@ -152,6 +152,8 @@ All 'required' factors defined in 'parameters' must be included when calling a f
 If you need multiple steps of function calling, please call sequentially and synthesize the results to generate the final answer.
 For functions with the 'displayImage' parameter, if it is determined that showing the product image is beneficial to the user, the parameter can be set to true and called.
 Before sensitive tasks(such as generateOrderQRCode), the user should be asked to summarize the contents and ask a double-check question in text in the chat window, and the function should be called after receiving a positive response from the user ('네', '맞아요', etc.). (Note: Instead of calling the function yourself, you should generate a message asking the user to confirm.)
+[Critical] If the result of a function call already fully answers the user’s question, stop calling functions and use that result to craft the final response.
+Limit the number of tool calls (func call) to four. When you reach that limit, output the content generated up to that point.
 
 $userInfoForPrompt
 $contextBlock
